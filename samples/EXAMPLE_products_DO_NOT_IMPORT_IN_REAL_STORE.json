@@ -1,0 +1,24 @@
+{
+  "products": [
+    {
+      "id": "DEMO-1001",
+      "name": "منتج تجريبي للمزامنة",
+      "description": "بيانات وهمية للتأكد من عمل الاستيراد فقط",
+      "category": {"name": "تجريبي"},
+      "price": 30,
+      "quantity": 7,
+      "images": [],
+      "options": {}
+    },
+    {
+      "id": "DEMO-1002",
+      "name": "منتج تجريبي آخر",
+      "description": "غير متاح لاختبار نفاد المخزون",
+      "category": {"name": "تجريبي"},
+      "price": 100,
+      "quantity": 0,
+      "images": [],
+      "options": {}
+    }
+  ]
+}

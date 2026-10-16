@@ -1,0 +1,48 @@
+{% extends 'base.html' %}{% block content %}
+<section class="container" style="max-width:920px;padding-block:32px" dir="rtl">
+ <a href="/admin#orders" class="text-link">← العودة إلى لوحة الإدارة</a>
+ <span class="eyebrow">صفقة · مراجعة الطلب</span>
+ <h1>معاينة الطلب {{ preview.order_reference }}</h1>
+ <div class="panel" style="padding:22px">
+  <p><strong>دي معاينة خاصة بالأدمن. مش هيتبعت أي طلب إلا بعد موافقة مستقلة على الطلب المحدد، وتأكيد العقد الرسمي للـAPI.</strong></p>
+  <p>الحقول الموجودة هنا بيانات Shopy المحلية، وليست صيغة Create Order معتمدة من صفقة.</p>
+  <h3>معلومات العميل (خاصة بالأدمن)</h3>
+  <p>{{preview.customer_name}} · <span dir="ltr">{{preview.customer_phone}}</span></p>
+  <p>{{preview.governorate}} — {{preview.address}}</p>
+  <h3>المنتجات</h3>
+  {% for item in preview['items'] %}
+  <div class="summary-line"><span>{{ item.name }} · معرّف صفقة {{item.supplier_product_id}} {% if item.supplier_product_code %}· كود/باركود {{ item.supplier_product_code }}{% else %}· الباركود يحتاج تأكيد{% endif %} · عدد {{item.quantity}}</span><strong>{{ money(item.customer_unit_price_piastres * item.quantity) }} ج.م</strong></div>
+  {% endfor %}
+  <hr>
+  <div class="summary-line"><span>المنتجات</span><strong>{{money(preview.customer_products_piastres)}} ج.م</strong></div>
+  <div class="summary-line"><span>الشحن الظاهر للعميل</span><strong>{{money(preview.customer_shipping_piastres)}} ج.م</strong></div>
+  <div class="summary-line"><span>المبلغ المتوقع تحصيله من العميل</span><strong>{{money(preview.total_to_collect_piastres)}} ج.م</strong></div>
+  <div class="summary-line"><span>تكلفة المورد + شحن المورد</span><strong>{{money(preview.estimated_supplier_products_piastres + preview.estimated_supplier_shipping_piastres)}} ج.م</strong></div>
+  <div class="summary-line"><span>هامش تقديري قبل المصاريف والمرتجعات</span><strong>{{money(preview.estimated_margin_before_costs_piastres)}} ج.م</strong></div>
+  <p class="fine-print">العمولة الحقيقية التي تعرضها صفقة قد تختلف عن الهامش التقديري أعلاه. لن نسمي أي فرق سعر «عمولة محصلة» قبل استلامه من صفقة.
+  {% if outbox %}<p><strong>حالة الإرسال:</strong> {{outbox.status}} {% if outbox.supplier_order_id %}· رقم صفقة: {{outbox.supplier_order_id}}{% endif %}{% if outbox.submitted_commission_piastres is not none %} · عمولة أُرسلت/محاولة إرسال: {{money(outbox.submitted_commission_piastres)}} ج.م (ليست ربحًا محصّلًا){% endif %}</p>{% endif %}
+  {% if test_enabled and outbox and outbox.status=='awaiting_provider_configuration' %}
+  <div class="panel" style="border:2px solid #b91c1c;padding:20px;margin-top:16px">
+   <h3>اختبار طلب حقيقي — عملية خارجية</h3>
+   <p>بالضغط على الزر أدناه، وبعد استيفاء إعدادات الربط الرسمية، سيتم إرسال طلب حقيقي إلى صفقة. قد يبدأ تأكيد الطلب وشحنه وتحصيله. لا تعتمد على إمكانية إلغائه.</p>
+   <p>لا تستخدم بيانات وهمية أو رقم شخص آخر. راجع المنتج والكمية والمبلغ أعلاه أولًا.</p>
+   <form method="post" action="/admin/safka/order/{{order_id}}/submit-test" class="admin-form">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <label>اكتب رقم الطلب بالكامل للتأكيد: <strong>{{preview.order_reference}}</strong>
+     <input name="confirm_reference" autocomplete="off" required placeholder="{{preview.order_reference}}">
+    </label>
+    <p class="fine-print">حسب التوثيق الرسمي: صفقة تتطلب معرّف تسعيرة الشحن من Price List ومعرّف خاصية المنتج من Product Details. يظل الإرسال ممنوعًا إذا لم تتطابق تسعيرة الشحن الحالية مع لقطة الطلب.</p>
+    <p><strong>معرّف تسعيرة الشحن (من بيانات صفقة):</strong> {{preview.shipping_pricing_document_id or 'غير متوفر — يلزم إعادة استيراد قائمة الشحن بالمعرّفات الصحيحة'}}</p>
+    <label>معرّف خاصية المنتج Property ID — من تفاصيل المنتج في API (24 رمزًا سداسيًا)
+     <input name="verified_property_id" minlength="24" maxlength="24" pattern="[a-fA-F0-9]{24}" autocomplete="off" required placeholder="من Product Details وليس مثال التوثيق">
+    </label>
+    <label>قيمة العمولة الصحيحة المطلوبة في صفقة (جنيه) — راجعها بنفسك قبل الإرسال
+     <input type="number" name="verified_commission_egp" min="0" max="100000000" step="0.01" required placeholder="قيمة العمولة بعد التحقق من صفقة">
+    </label>
+    <p class="fine-print">العمولة ليست سعر الشحن. توثيق Create Order يذكرها كحقل مطلوب لكنه يحذفها من مثال JSON. لن نخمّن قيمتها تلقائيًا. لا تستخدم معرّفات أو أسعار الأمثلة.</p>
+    <button type="submit" class="btn btn-outline">أوافق على إرسال هذا الطلب الحقيقي إلى صفقة مرة واحدة</button>
+   </form>
+  </div>
+  {% else %}<p class="fine-print">الإرسال الحقيقي غير متاح حاليًا أو تم حجز الطلب من قبل. لا يوجد إعادة إرسال تلقائية.</p>{% endif %}</p>
+ </div>
+</section>{% endblock %}

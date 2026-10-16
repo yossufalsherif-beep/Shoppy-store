@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+ <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+ <meta name="theme-color" content="#fafaf8"><meta name="description" content="Shopy Store — اختار منتجاتك واطلب بسهولة، مع الدفع عند الاستلام.">
+ {% if request.path.startswith('/admin') or request.path.startswith('/account') or request.path.startswith('/checkout') or request.path.startswith('/order') or request.path.startswith('/cart') or request.path.startswith('/compare') or request.path.startswith('/assistant') %}<meta name="robots" content="noindex,nofollow">{% endif %}
+ <title>{% block title %}Shopy Store — تسوق ببساطة{% endblock %}</title>
+ <link rel="stylesheet" href="{{url_for('static',filename='style.css')}}">
+ {% block head %}{% endblock %}
+</head>
+<body>
+ {% if staging_mode %}<div role="status" style="background:#fff3d2;color:#563b00;text-align:center;padding:12px;font-weight:700">نسخة اختبار خاصة — لا تستقبل طلبات شراء أو تسجيل عملاء حاليًا</div>{% endif %}
+ <div class="topline">تسوق براحتك، وادفع عند الاستلام <span aria-hidden="true">✦</span> Shopy Store</div>
+ <header class="site-header">
+  <div class="wrap header-inner">
+   <a href="/" class="brand" aria-label="Shopy Store - الرئيسية"><span class="brand-mark">S</span><span class="brand-type"><strong>Shopy<span>Store</span></strong><small>BY elsherif group</small></span></a>
+   <nav class="main-nav" aria-label="القائمة الرئيسية"><a href="/" class="nav-link">الرئيسية</a><a href="/#catalog" class="nav-link">المنتجات</a><a href="/assistant" class="nav-link">مساعد التسوق</a><a href="/compare" class="nav-link">المقارنة</a></nav>
+   <div class="header-actions"><a class="header-action" href="{{'/admin' if user and user.role=='admin' else '/account' if user else '/login'}}" aria-label="حسابي"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 21a7.5 7.5 0 0 1 15 0"/></svg><span class="hide-mobile">{{'لوحة التحكم' if user and user.role=='admin' else 'حسابي' if user else 'دخول'}}</span></a><a class="header-action cart-link" href="/cart" aria-label="سلة التسوق"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.2 11.5h11L21 8H6"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg><span class="hide-mobile">السلة</span><span class="cart-badge">{{cart_count}}</span></a></div>
+  </div>
+ </header>
+ <main class="wrap main-content">
+  {% with messages=get_flashed_messages() %}{% for m in messages %}<div role="status" class="notice">{{m}}</div>{% endfor %}{% endwith %}
+  {% block content %}{% endblock %}
+ </main>
+ <footer class="site-footer"><div class="wrap footer-layout"><div><strong class="footer-brand">Shopy Store</strong><p>اختيارات بسيطة، وتجربة شراء أسهل.</p><small>BY elsherif group</small></div><div><h4>روابط سريعة</h4><a href="/">المنتجات</a><a href="/cart">سلة التسوق</a><a href="/login">الحساب</a><a href="/assistant">مساعد التسوق</a><a href="/compare">قارن المنتجات</a></div><div><h4>الطلب والدفع</h4><p>الطلبات بتتسجل مباشرة على الموقع.</p><p>الدفع عند الاستلام (COD)</p></div><div><h4>فريق الدعم</h4>{% if contact.get('support_phone') %}<p><a href="tel:{{contact.support_phone}}" dir="ltr">{{contact.support_phone}}</a></p>{% endif %}{% if contact.get('support_email') %}<p><a href="mailto:{{contact.support_email}}">{{contact.support_email}}</a></p>{% endif %}{% if not contact.get('support_email') and not contact.get('support_phone') %}<p>بيانات التواصل هتظهر بعد ما مدير المتجر يضيفها.</p>{% endif %}</div></div><div class="wrap copyright">© Shopy Store — جميع الحقوق محفوظة</div></footer>
+</body>
+</html>

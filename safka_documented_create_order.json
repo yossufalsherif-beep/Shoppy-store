@@ -1,0 +1,21 @@
+{
+  "schema_verified": true,
+  "path": "/api/v1/public/orders",
+  "fields": {
+    "client_name": "customer_name",
+    "client_phone1": "customer_phone",
+    "client_address": "address",
+    "shipping_governorate": "shipping_pricing_document_id",
+    "commission": "requested_commission_egp",
+    "total": "total_to_collect_egp",
+    "note": "order_reference"
+  },
+  "items_field": "items",
+  "item_fields": {
+    "product": "supplier_product_id",
+    "property": "supplier_property_id",
+    "qty": "quantity"
+  },
+  "stringify_quantity": true,
+  "response_order_id_path": "data._id"
+}

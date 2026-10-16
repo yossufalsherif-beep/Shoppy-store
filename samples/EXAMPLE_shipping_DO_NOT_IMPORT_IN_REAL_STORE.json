@@ -1,0 +1,6 @@
+{
+  "shipping": [
+    {"governorate": "الجيزة", "city": "", "area": "", "shipping_fee": 40},
+    {"governorate": "القاهرة", "city": "", "area": "", "shipping_fee": 35}
+  ]
+}
