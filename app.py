@@ -334,6 +334,32 @@ def register():
     if isinstance(exc, sqlite3.IntegrityError) or (exc.__class__.__name__ == 'UniqueViolation' and exc.__class__.__module__.startswith('psycopg')):flash('البريد مستخدم بالفعل')
     else:raise
  return render_template('auth.html',mode='register')
+@app.route('/admin/setup',methods=['GET','POST'])
+def setup_first_admin():
+ # Disabled unless the owner explicitly configures a private one-time setup token.
+ token=os.getenv('SHOPY_ADMIN_SETUP_TOKEN','')
+ if len(token)<24:abort(404)
+ with db() as c:
+  existing=c.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone()
+ if existing:abort(404)
+ if request.method=='POST':
+  submitted=request.form.get('setup_token','')
+  email=request.form.get('email','').strip().lower()
+  password=request.form.get('password','')
+  if not hmac.compare_digest(token,submitted):
+   abort(403)
+  if not re.fullmatch(r'[^@\\s]+@[^@\\s]+\\.[^@\\s]+',email) or len(password)<16:
+   flash('اكتب بريدًا صحيحًا وكلمة مرور لا تقل عن 16 حرفًا')
+  else:
+   # A second check avoids accidentally creating another owner on a retry.
+   with db() as c:
+    if c.execute("SELECT id FROM users WHERE role='admin' LIMIT 1").fetchone():abort(409)
+    c.execute("INSERT INTO users(email,password,role) VALUES(?,?,?)",(email,generate_password_hash(password),'admin'))
+   return redirect('/login')
+ # Avoid embedding the token in a URL, logs, or HTML.
+ from markupsafe import escape
+ return app.response_class("""<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="robots" content="noindex"><title>إنشاء الأدمن الأول</title><body><h2>إنشاء الأدمن الأول (مرة واحدة فقط)</h2><form method="post"><input type="hidden" name="csrf" value="%s"><label>البريد الإلكتروني <input type="email" name="email" required autocomplete="email"></label><br><label>كلمة المرور الجديدة <input type="password" name="password" minlength="16" required autocomplete="new-password"></label><br><label>رمز الإعداد الخاص <input type="password" name="setup_token" required autocomplete="off"></label><br><button type="submit">إنشاء حساب الأدمن</button></form></body></html>""" % escape(csrf()),mimetype='text/html')
+
 @app.route('/login',methods=['GET','POST'])
 def login():
  if request.method=='POST':
