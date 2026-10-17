@@ -597,15 +597,30 @@ def submit_safka_test_order(oid):
   # Validate all inputs before claiming a durable one-shot supplier order.
   with db() as conn:
    preview=prepare_dry_run(conn,oid)
-   if preview['order_reference'] != expected:
-    raise OrderContractError('Type the exact order reference to authorize the live POST')
-   if len(preview['items'])!=1:
-    raise OrderContractError('The first verified provider order test must contain exactly one line item')
+   if preview['order_reference'] != expected or not expected.startswith('SH-TEST-'):
+    raise OrderContractError('Confirm an owner-created first-test order reference')
+   if len(preview['items'])!=1 or preview['items'][0]['quantity']!=1:
+    raise OrderContractError('First supplier test must have exactly one product and quantity one')
+   if preview['total_to_collect_piastres']>50000:
+    raise OrderContractError('Owner-first-test total must not exceed 500 EGP')
    product_id=preview['items'][0]['supplier_product_id']
    if not re.fullmatch(r'[a-fA-F0-9]{24}',str(product_id)):
     raise OrderContractError('Supplier product ID must be verified against the Safka product record')
-   canonical=canonical_order(preview,commission_egp=float(commission),property_ids={0:property_id})
-   build_payload(canonical,contract)
+  # Re-fetch from the real official product detail API before claiming the one-shot send.
+  # Never accept a copied/guessed property ID just because it looks like an ObjectId.
+  from safka_webhooks import fetch_product_detail
+  detail,original=fetch_product_detail(api_key,str(product_id))
+  if original.get('is_active') is False or detail['supplier_id']!=str(product_id):
+   raise OrderContractError('This Safka product is no longer active')
+  if detail['supplier_cost']!=preview['items'][0]['supplier_unit_price_piastres']:
+   raise OrderContractError('Supplier price changed after the order draft')
+  properties=original.get('properties')
+  if not isinstance(properties,list) or not any(
+        isinstance(prop,dict) and prop.get('_id')==property_id
+        and prop.get('is_active') is not False for prop in properties):
+   raise OrderContractError('Property ID does not belong to an active property of this supplier product')
+  canonical=canonical_order(preview,commission_egp=float(commission),property_ids={0:property_id})
+  build_payload(canonical,contract)
   with db() as conn:
    claim_one_test_order(conn,oid,expected,int(commission*100))
   # There is NO second attempt if network fails or provider response is unclear.
