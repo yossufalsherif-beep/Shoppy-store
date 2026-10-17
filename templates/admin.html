@@ -27,7 +27,40 @@
 <p class="fine-print">بعد نجاح المعاينة، استورد منتجات صفقة كمسودات غير منشورة في دفعات (حتى 50 منتجًا في المرة). الدفعة التالية حاليًا: <strong>{{settings.get('safka_admin_next_page','1')}}</strong>. اضغط «الدفعة التالية» لتكملة بقية الصفحات. لا تُحذف منتجاتك اليدوية ولا تُرسل طلبات للمورد.</p>
 <form method="post" action="/admin/safka/sync" class="admin-form">
 <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="kind" value="products">
-<button type="submit" class="btn btn-outline">استيراد دفعة منتجات صفقة (غير منشورة)</button></form>
+<button type="submit" class="btn btn-outline">استيراد دفعة منتجات صفقة (غير منشورة)</button></form><button type="button" id="syncAllSafkaProducts" class="btn btn-dark">مزامنة كل المنتجات بضغطة واحدة</button>
+<p id="fullSyncProgress" role="status" aria-live="polite" class="fine-print">بيتم الاستيراد على دفعات آمنة، ويمكن وقف العملية بعد أي دفعة.</p>
+<script>
+(() => {
+ const button=document.getElementById('syncAllSafkaProducts');
+ const output=document.getElementById('fullSyncProgress');
+ const csrf={{csrf|tojson}};
+ let stop=false,running=false;
+ button.addEventListener('click',async()=>{
+  if(running){stop=true;button.textContent='جارٍ إيقاف المزامنة...';return;}
+  running=true;stop=false;button.textContent='إيقاف بعد الدفعة الحالية';
+  let total=0;
+  try {
+   for(let i=0;i<60 && !stop;i++){
+    const data=new URLSearchParams({csrf,kind:'products'});
+    const response=await fetch('/admin/safka/sync',{
+      method:'POST',body:data,credentials:'same-origin',
+      headers:{'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},
+      redirect:'error'
+    });
+    const result=await response.json();
+    if(!response.ok||!result.ok)throw new Error(result.message||'تعذرت المزامنة');
+    total+=result.imported;
+    output.textContent='تمت معالجة '+total+' منتج في هذه العملية — صفحة '+result.page+' من '+result.total_pages;
+    if(result.cycle_complete){output.textContent+=' — اكتملت دورة الكتالوج بنجاح.';break;}
+    if(i===59){output.textContent+=' — وصلت للحد الآمن للدفعات؛ يمكن الاستكمال لاحقًا.';break;}
+    await new Promise(resolve=>setTimeout(resolve,350));
+   }
+   if(stop)output.textContent+=' — تم التوقف بأمان؛ الاستكمال يبدأ من آخر صفحة محفوظة.';
+  }catch(e){output.textContent='توقفت العملية: '+e.message+'. يمكن إعادة المحاولة دون فقدان الدفعات السابقة.';}
+  finally{running=false;button.textContent='مزامنة كل المنتجات بضغطة واحدة';}
+ });
+})();
+</script>
 <p class="fine-print">مزامنة الشحن تتطلب اكتمال كل المحافظات والمدن في استجابة صفقة. أسعار الشحن = سعر المورد + 10 جنيه؛ لا تتغير الأسعار اليدوية ولا الطلبات القديمة.</p>
 <form method="post" action="/admin/safka/sync" class="admin-form">
 <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="kind" value="shipping">
