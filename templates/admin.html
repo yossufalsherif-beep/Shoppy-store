@@ -24,10 +24,10 @@
 <p class="fine-print">هوك الطلبات يستقبل الإشعار دون تغيير حالة الطلب حتى يتم التحقق من شكل الحدث وتوقيعه. Callback لا يخزن أو يعرض مفتاحًا جديدًا.</p>
 </div>
 <div class="panel"><h3>📥 استيراد صفقة — تحكم الأدمن</h3>
-<p class="fine-print">بعد نجاح المعاينة، استورد منتجات صفقة كمسودات غير منشورة في دفعات (حتى 50 منتجًا في المرة). الدفعة التالية حاليًا: <strong>{{settings.get('safka_admin_next_page','1')}}</strong>. اضغط «الدفعة التالية» لتكملة بقية الصفحات. لا تُحذف منتجاتك اليدوية ولا تُرسل طلبات للمورد.</p>
+<p class="fine-print">بعد نجاح المعاينة، استورد منتجات صفقة كمسودات غير منشورة في دفعات (حتى 50 منتجًا في المرة). الدفعة التالية حاليًا: <strong>{{settings.get('safka_admin_next_page','1')}}</strong>. اضغط «الدفعة التالية» لتكملة بقية الصفحات. بعد اكتمال جميع الصفحات، المنتجات التي لم تعد لدى صفقة ستختفي من المتجر بدون حذف طلبات العملاء القديمة.</p>
 <form method="post" action="/admin/safka/sync" class="admin-form">
 <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="kind" value="products">
-<button type="submit" class="btn btn-outline">استيراد دفعة منتجات صفقة (غير منشورة)</button></form><button type="button" id="syncAllSafkaProducts" class="btn btn-dark">مزامنة كل المنتجات بضغطة واحدة</button>
+<button type="submit" class="btn btn-outline">استكمال الدفعة الحالية</button></form><button type="button" id="syncAllSafkaProducts" class="btn btn-dark">مزامنة الكتالوج بالكامل بضغطة واحدة</button>
 <p id="fullSyncProgress" role="status" aria-live="polite" class="fine-print">بيتم الاستيراد على دفعات آمنة، ويمكن وقف العملية بعد أي دفعة.</p>
 <script>
 (() => {
@@ -40,6 +40,12 @@
   running=true;stop=false;button.textContent='إيقاف بعد الدفعة الحالية';
   let total=0;
   try {
+   const begin=await fetch('/admin/safka/sync',{
+      method:'POST',body:new URLSearchParams({csrf,kind:'restart-products'}),
+      credentials:'same-origin',headers:{'Accept':'application/json','Content-Type':'application/x-www-form-urlencoded'},redirect:'error'
+   });
+   const start=await begin.json();
+   if(!begin.ok||!start.ok)throw new Error(start.message||'تعذر بدء دورة المزامنة');
    for(let i=0;i<60 && !stop;i++){
     const data=new URLSearchParams({csrf,kind:'products'});
     const response=await fetch('/admin/safka/sync',{
@@ -51,11 +57,11 @@
     if(!response.ok||!result.ok)throw new Error(result.message||'تعذرت المزامنة');
     total+=result.imported;
     output.textContent='تمت معالجة '+total+' منتج في هذه العملية — صفحة '+result.page+' من '+result.total_pages;
-    if(result.cycle_complete){output.textContent+=' — اكتملت دورة الكتالوج بنجاح.';break;}
+    if(result.cycle_complete){output.textContent+=' — اكتملت المزامنة؛ تمت أرشفة '+result.archived+' منتج لم يعد في صفقة.';break;}
     if(i===59){output.textContent+=' — وصلت للحد الآمن للدفعات؛ يمكن الاستكمال لاحقًا.';break;}
     await new Promise(resolve=>setTimeout(resolve,350));
    }
-   if(stop)output.textContent+=' — تم التوقف بأمان؛ الاستكمال يبدأ من آخر صفحة محفوظة.';
+   if(stop)output.textContent+=' — تم الإيقاف بدون إزالة منتجات. اضغط المزامنة مجددًا لبدء دورة كاملة من البداية.';
   }catch(e){output.textContent='توقفت العملية: '+e.message+'. يمكن إعادة المحاولة دون فقدان الدفعات السابقة.';}
   finally{running=false;button.textContent='مزامنة كل المنتجات بضغطة واحدة';}
  });
