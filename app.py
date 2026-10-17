@@ -348,7 +348,7 @@ def setup_first_admin():
   password=request.form.get('password','')
   if not hmac.compare_digest(token,submitted):
    abort(403)
-  if not re.fullmatch(r'[^@\\s]+@[^@\\s]+\\.[^@\\s]+',email) or len(password)<16:
+  if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',email) or len(password)<16:
    flash('اكتب بريدًا صحيحًا وكلمة مرور لا تقل عن 16 حرفًا')
   else:
    # A second check avoids accidentally creating another owner on a retry.
