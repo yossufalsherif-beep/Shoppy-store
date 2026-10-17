@@ -176,6 +176,26 @@ def shipping_quote(conn, governorate,city='',area=''):
  if base:return base['fee'],base['supplier_cost']
  return None
 
+def customer_favorite_ids(conn,user):
+ if not user:return set()
+ return {r['product_id'] for r in conn.execute(
+    'SELECT product_id FROM favorites WHERE user_id=?',(user['id'],)).fetchall()}
+
+def customer_product_rating_map(conn):
+ return {r['product_id']:{'avg':float(r['avg_rating']),'count':r['review_count']}
+         for r in conn.execute("""SELECT product_id,AVG(rating) AS avg_rating,COUNT(*) AS review_count
+               FROM product_reviews GROUP BY product_id""").fetchall()}
+
+def safe_back_url():
+ target=request.form.get('return_to','')
+ if not isinstance(target,str) or not target.startswith('/') or target.startswith('//') or '\\' in target:
+  return '/favorites'
+ # Never let a caller push the browser onto a different domain or a protocol-relative path.
+ if target.startswith('/admin') or target.startswith('/integrations'):
+  return '/favorites'
+ return target[:250]
+
+
 @app.route('/')
 def home():
  capture_campaign()
@@ -186,7 +206,10 @@ def home():
   if category:filters.append('category=?');args.append(category)
   items=c.execute('SELECT * FROM products WHERE '+' AND '.join(filters)+' ORDER BY id DESC',args).fetchall()
   categories=[r['category'] for r in c.execute("SELECT DISTINCT category FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND category!='' ORDER BY category")]
- return render_template('home.html',items=items,term=term,category=category,categories=categories)
+  fav_ids=customer_favorite_ids(c,current_user())
+  ratings_map=customer_product_rating_map(c)
+ return render_template('home.html',items=items,term=term,category=category,
+                        categories=categories,fav_ids=fav_ids,ratings_map=ratings_map)
 
 @app.route('/products/<slug>')
 def product(slug):
@@ -195,8 +218,18 @@ def product(slug):
   p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(slug,)).fetchone()
   if not p:abort(404)
   others=c.execute("SELECT * FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
- with db() as c:media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
- return render_template('product.html',p=p,others=others,media=media,options=json.loads(p['options_json'] or '{}'),stock_ready=supplier_stock_ready(p))
+ with db() as c:
+  media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
+  user=current_user()
+  fav_ids=customer_favorite_ids(c,user)
+  ratings_map=customer_product_rating_map(c)
+  reviews=c.execute("""SELECT rating,comment,created_at FROM product_reviews
+                   WHERE product_id=? ORDER BY created_at DESC,id DESC LIMIT 50""",(p['id'],)).fetchall()
+  mine=(c.execute('SELECT rating,comment FROM product_reviews WHERE product_id=? AND user_id=?',
+         (p['id'],user['id'])).fetchone() if user else None)
+ return render_template('product.html',p=p,others=others,media=media,
+                        options=json.loads(p['options_json'] or '{}'),stock_ready=supplier_stock_ready(p),
+                        fav_ids=fav_ids,ratings_map=ratings_map,reviews=reviews,mine=mine)
 def product_choices(p):
  try:
   data=json.loads(p['options_json'] or '{}')
@@ -855,7 +888,12 @@ def assistant():
   allowed=[p for p in products if (budget is None or p['price']<=budget) and (not category or p['category']==category)]
   refined=local_ai_recommend(allowed,query,budget,category)
   if refined is not None:matches=refined;engine='ollama'
- return render_template('assistant.html',matches=matches,need=query,budget=raw_budget,category=category,categories=categories,warning=warning,asked=request.method=='POST',engine=engine)
+ with db() as conn:
+  fav_ids=customer_favorite_ids(conn,current_user())
+  ratings_map=customer_product_rating_map(conn)
+ return render_template('assistant.html',matches=matches,need=query,budget=raw_budget,
+    category=category,categories=categories,warning=warning,
+    asked=request.method=='POST',engine=engine,fav_ids=fav_ids,ratings_map=ratings_map)
 
 
 @app.post('/integrations/safka/hook/<kind>/<token>')
