@@ -1,4 +1,4 @@
 <a class="product-card" href="/products/{{item.slug}}">
  <div class="product-cover">{% if item.image %}<img src="{{item.image}}" alt="{{item.title}}" loading="lazy">{% else %}<div class="product-fallback"><span class="fallback-logo">S</span><span>Shopy Store</span></div>{% endif %}<span class="product-card-arrow" aria-hidden="true">↗</span></div>
- <div class="product-card-info"><span class="eyebrow">Shopy Store</span><h3>{{item.title}}</h3><div class="product-card-bottom"><strong>{{money(item.price)}} <small>ج.م</small></strong><span class="round-plus" aria-hidden="true">+</span></div></div>
+ <div class="product-card-info"><span class="eyebrow">Shopy Store</span>{% if item.source=='safka' and (not item.active or item.supplier_stock is none or item.supplier_stock <= 0) %}<span class="supplier-note">للعرض فقط — التوفر غير مؤكد</span>{% endif %}<h3>{{item.title}}</h3><div class="product-card-bottom"><strong>{{money(item.price)}} <small>ج.م</small></strong><span class="round-plus" aria-hidden="true">+</span></div></div>
 </a>
