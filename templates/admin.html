@@ -13,6 +13,10 @@
 <p class="fine-print">الطلبات في لوحة الأدمن محفوظة دائمًا. إرسال طلب اختباري واحد يحتاج مراجعة عقد API، وتفعيلًا مستقلًا، وموافقة من صاحب المتجر على الطلب المحدد. النقل التلقائي ما زال غير مُفعّل، ولا تعتبر حالة «في انتظار الربط» إرسالًا ناجحًا.</p>
 <a class="text-link" href="https://public-api-docs.safka-eg.com/" target="_blank" rel="noopener">التوثيق الرسمي لصفقة ↗</a>
 </div>
+<div class="panel"><h3>🔎 معاينة استيراد صفقة</h3>
+<p class="fine-print">فحص عينة صغيرة من المنتجات وأسعار الشحن قبل الاستيراد. يعرض عدد السجلات القابلة للتحويل والمرفوضة، بدون حفظ بيانات أو نشر منتجات أو إرسال طلبات.</p>
+<form method="post" action="/admin/safka/preview-import"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline" type="submit">معاينة بيانات صفقة — بدون استيراد</button></form>
+</div>
 <div class="panel"><h3>🧪 اختبار قراءة صفقة (آمن)</h3>
 <p class="fine-print">يقرأ عينة صغيرة من المنتجات والشحن، ويعرض أسماء الحقول وحالة الاتصال فقط. لا يستورد منتجات ولا يرسل طلبات أو بيانات عملاء. يحتاج ضبط مسارات API الرسمية على Vercel.</p>
 <form method="post" action="/admin/safka/check-connection"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline" type="submit">اختبار اتصال صفقة — قراءة فقط</button></form>

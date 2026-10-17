@@ -772,6 +772,48 @@ def assistant():
  return render_template('assistant.html',matches=matches,need=query,budget=raw_budget,category=category,categories=categories,warning=warning,asked=request.method=='POST',engine=engine)
 
 
+@app.post('/admin/safka/preview-import')
+@admin_only
+def preview_safka_import():
+ # Preview only: do not use any write connection or invoke import_products.
+ if os.getenv('SHOPY_SAFKA_READ_ENABLED') != '1':
+  flash('معاينة صفقة: القراءة غير مفعلة.')
+  return redirect('/admin')
+ key=os.getenv('SHOPY_SAFKA_API_KEY','')
+ if len(key.strip()) < 12:
+  flash('معاينة صفقة: مفتاح API غير موجود.')
+  return redirect('/admin')
+ from safka_probe import preview_records
+ from safka_bridge import normalize_product, normalize_shipping, CatalogValidationError
+ from urllib.error import HTTPError, URLError
+ for label,var,kind,normalizer in [
+  ('المنتجات','SHOPY_SAFKA_PRODUCTS_PATH','products',normalize_product),
+  ('الشحن','SHOPY_SAFKA_SHIPPING_PATH','shipping',normalize_shipping)]:
+  path=os.getenv(var,'').strip()
+  if not path:
+   flash('معاينة صفقة - '+label+': مسار API غير مضبوط.')
+   continue
+  try:
+   rows=preview_records(path,key,kind,timeout=8)
+   valid=0; blocked=0; missing_stock=0; categories_missing=0
+   for raw in rows:
+    try:
+     mapped=normalizer(raw)
+     valid+=1
+     if kind=='products':
+      if mapped['stock'] is None:missing_stock+=1
+      if mapped['category']=='غير مصنف (صفقة)':categories_missing+=1
+    except (CatalogValidationError,ValueError,TypeError,KeyError):
+     blocked+=1
+   flash('معاينة صفقة - '+label+': فُحصت '+str(len(rows))+' سجلات. صالحة للتحويل: '+str(valid)+'؛ تحتاج مراجعة: '+str(blocked)+
+         ('؛ بلا مخزون مؤكد: '+str(missing_stock)+'؛ بلا تصنيف: '+str(categories_missing) if kind=='products' else '')+
+         '. معاينة فقط — لم تُحفظ أي بيانات.')
+  except HTTPError as exc:
+   flash('معاينة صفقة - '+label+': رفض HTTP '+str(exc.code)+'.')
+  except (URLError,OSError,ValueError,TypeError,CatalogValidationError) as exc:
+   flash('معاينة صفقة - '+label+': تعذرت القراءة ('+type(exc).__name__+'). لم تُحفظ بيانات.')
+ return redirect('/admin')
+
 @app.post('/admin/safka/check-connection')
 @admin_only
 def check_safka_connection():
