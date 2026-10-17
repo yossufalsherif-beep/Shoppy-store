@@ -161,7 +161,7 @@ def product(slug):
  with db() as c:
   p=c.execute('SELECT * FROM products WHERE slug=? AND active=1',(slug,)).fetchone()
   if not p:abort(404)
-  others=c.execute("SELECT * FROM products WHERE active=1 AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['category'],p['id'])).fetchall()
+  others=c.execute("SELECT * FROM products WHERE active=1 AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
  with db() as c:media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
  return render_template('product.html',p=p,others=others,media=media,options=json.loads(p['options_json'] or '{}'),stock_ready=supplier_stock_ready(p))
 def product_choices(p):
