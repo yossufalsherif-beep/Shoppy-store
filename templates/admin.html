@@ -13,6 +13,10 @@
 <p class="fine-print">الطلبات في لوحة الأدمن محفوظة دائمًا. إرسال طلب اختباري واحد يحتاج مراجعة عقد API، وتفعيلًا مستقلًا، وموافقة من صاحب المتجر على الطلب المحدد. النقل التلقائي ما زال غير مُفعّل، ولا تعتبر حالة «في انتظار الربط» إرسالًا ناجحًا.</p>
 <a class="text-link" href="https://public-api-docs.safka-eg.com/" target="_blank" rel="noopener">التوثيق الرسمي لصفقة ↗</a>
 </div>
+<div class="panel"><h3>🧪 اختبار قراءة صفقة (آمن)</h3>
+<p class="fine-print">يقرأ عينة صغيرة من المنتجات والشحن، ويعرض أسماء الحقول وحالة الاتصال فقط. لا يستورد منتجات ولا يرسل طلبات أو بيانات عملاء. يحتاج ضبط مسارات API الرسمية على Vercel.</p>
+<form method="post" action="/admin/safka/check-connection"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline" type="submit">اختبار اتصال صفقة — قراءة فقط</button></form>
+</div>
 <div class="panel"><h3>🔗 حالة ربط حساب صفقة</h3>
 <p>إعداد القراءة: <strong>{{'مفعّل' if api_read_enabled else 'غير مفعّل'}}</strong> · مفتاح API محلي: <strong>{{'موجود (مخفي)' if api_key_present else 'غير مُدخل'}}</strong>.</p>
 <p class="fine-print">اضبط ملف <code>.env</code> محليًا ثم شغّل فحص الاتصال والمزامنة من ملفات Windows المرفقة. مفتاح API لا يوضع في صفحات الويب ولا يظهر هنا. لا توجد أي عمليات إنشاء طلبات لدى صفقة في هذه النسخة.</p>
