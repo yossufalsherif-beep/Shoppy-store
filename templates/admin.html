@@ -21,7 +21,40 @@
 <input type="text" dir="ltr" readonly value="{{safka_hook_urls.order}}" onclick="this.select()">
 <label>Callback API — تأكيد المفتاح الحالي فقط</label>
 <input type="text" dir="ltr" readonly value="{{safka_hook_urls.callback}}" onclick="this.select()">
-<p class="fine-print">هوك الطلبات يستقبل الإشعار دون تغيير حالة الطلب حتى يتم التحقق من شكل الحدث وتوقيعه. Callback لا يخزن أو يعرض مفتاحًا جديدًا.</p></div>
+<p class="fine-print">هوك الطلبات يستقبل الإشعار دون تغيير حالة الطلب حتى يتم التحقق من شكل الحدث وتوقيعه. Callback لا يخزن أو يعرض مفتاحًا جديدًا.</p><p class="fine-print">اختبار داخلي بدون إرسال طلب لصفقة أو تعديل منتجات: اختبر وصول طلب POST فارغ إلى مستقبل هوك المنتج والطلبات من المتصفح.</p>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0">
+<button type="button" class="btn btn-outline" onclick="testSafkaReceiver('product')">اختبار استقبال هوك المنتج</button>
+<button type="button" class="btn btn-outline" onclick="testSafkaReceiver('order')">اختبار استقبال هوك الطلبات</button>
+</div>
+<p id="safkaHookTestResult" role="status" aria-live="polite">لم يتم الاختبار بعد.</p>
+<script>
+const safkaReceiverTestUrls = {
+ product: {{safka_hook_urls.product|tojson}},
+ order: {{safka_hook_urls.order|tojson}}
+};
+async function testSafkaReceiver(kind) {
+ const label = kind === 'product' ? 'المنتج' : 'الطلبات';
+ const output = document.getElementById('safkaHookTestResult');
+ output.textContent = 'جاري اختبار استقبال هوك ' + label + '...';
+ try {
+  const response = await fetch(safkaReceiverTestUrls[kind], {
+   method:'POST',
+   headers:{'Content-Type':'application/json','Accept':'application/json'},
+   body:'{}',
+   credentials:'same-origin',
+   redirect:'error'
+  });
+  if (response.status===202) {
+   output.textContent='✅ مستقبل هوك '+label+' يعمل ويقبل الطلب الاختباري. هذا لا يثبت أن صفقة أرسلت حدثًا فعليًا.';
+  } else {
+   output.textContent='❌ اختبار هوك '+label+' أعاد HTTP '+response.status+'. يلزم مراجعة إعدادات الاستقبال.';
+  }
+ } catch {
+  output.textContent='❌ تعذر الوصول لمستقبل هوك '+label+' من المتصفح.';
+ }
+}
+</script>
+</div>
 <div class="panel"><h3>📥 استيراد صفقة — تحكم الأدمن</h3>
 <p class="fine-print">بعد نجاح المعاينة، استورد منتجات صفقة كمسودات غير منشورة في دفعات (حتى 50 منتجًا في المرة). الدفعة التالية حاليًا: <strong>{{settings.get('safka_admin_next_page','1')}}</strong>. اضغط «الدفعة التالية» لتكملة بقية الصفحات. لا تُحذف منتجاتك اليدوية ولا تُرسل طلبات للمورد.</p>
 <form method="post" action="/admin/safka/sync" class="admin-form">
