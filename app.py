@@ -429,6 +429,33 @@ def account():
   details={o['id']:c.execute('SELECT title,quantity,unit_price FROM order_items WHERE order_id=?',(o['id'],)).fetchall() for o in orders}
   supplier_states={o['id']:c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(o['id'],)).fetchone() for o in orders}
  return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states)
+@app.get('/admin/safka/first-order/quote')
+@admin_only
+def safka_owner_first_order_quote():
+ raw_id=request.args.get('product_id','')
+ if not raw_id.isdecimal():return jsonify(ok=False,message='اختر المنتج'),400
+ gov=request.args.get('governorate','').strip()[:80]
+ city=request.args.get('city','').strip()[:80]
+ area=request.args.get('area','').strip()[:80]
+ if not gov or len(city)<2 or len(area)<2:
+  return jsonify(ok=False,message='اختر المدينة والمنطقة'),400
+ with db() as conn:
+  p=conn.execute("""SELECT * FROM products WHERE id=? AND source='safka'
+          AND active=1 AND supplier_listed=1""",(int(raw_id),)).fetchone()
+  if not p or not supplier_stock_ready(p,1) or product_choices(p):
+   return jsonify(ok=False,message='اختر منتج صفقة حديث بدون خيارات'),422
+  rate=quote_safka_shipping(conn,gov,city,area)
+  pricing=(shipping_pricing_document_id(conn,gov,city,area,rate[0],rate[1])
+           if rate and rate[1] is not None else None)
+ if rate is None or not pricing:
+  return jsonify(ok=False,message='المدينة ليس لها تسعيرة شحن رسمية مؤكدة'),404
+ total=p['price']+rate[0]
+ if total>50000:
+  return jsonify(ok=False,message='اختبار الطلب الواحد محدود بإجمالي 500 جنيه'),422
+ return jsonify(ok=True,product_piastres=p['price'],
+               shipping_piastres=rate[0],total_piastres=total)
+
+
 @app.route('/admin/safka/first-order',methods=['GET','POST'])
 @admin_only
 def safka_owner_first_order():
