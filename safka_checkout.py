@@ -1,6 +1,7 @@
 """Customer checkout reads Safka; never creates a supplier order from a GET."""
 import os
 import time
+import json
 from datetime import datetime, timezone
 from safka_admin_sync import api_page, checked_shipping, sync_shipping_snapshot
 from safka_bridge import CatalogValidationError
@@ -89,7 +90,30 @@ def ensure_shipping(db, *, read=api_page):
                                (str(now), previous))
         if claimed.rowcount != 1:
             raise CatalogValidationError('Supplier shipping refresh is pending')
-    rows = shipping_snapshot(key, read=read)
+    def observed_read(*args,**kwargs):
+        envelope,rows=read(*args,**kwargs)
+        first=rows[0] if rows and isinstance(rows[0],dict) else {}
+        cities=first.get('cities')
+        first_city=cities[0] if isinstance(cities,list) and cities and isinstance(cities[0],dict) else {}
+        # Structural diagnostics only: never credentials, customer data or full bodies.
+        shape={'keys':sorted(envelope),'records':len(rows),'first_keys':sorted(first),
+               'city_keys':sorted(first_city),'itemsCount':envelope.get('itemsCount'),
+               'totalActiveGovernorates':envelope.get('totalActiveGovernorates')}
+        with db() as conn:
+            conn.execute("INSERT INTO safka_schema_meta(key,value) VALUES('shipping_response_shape',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                         (json.dumps(shape),))
+        return envelope,rows
+    try:
+        rows = shipping_snapshot(key, read=observed_read)
+    except (ValueError,OSError,TypeError,KeyError) as exc:
+        reason=type(exc).__name__
+        if isinstance(exc,CatalogValidationError):reason+=': '+str(exc)
+        elif hasattr(exc,'code'):reason+=': HTTP '+str(exc.code)
+        with db() as conn:
+            conn.execute("INSERT INTO safka_schema_meta(key,value) VALUES('shipping_refresh_error',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                         (reason[:300],))
+        raise
     with db() as conn:
         sync_shipping_snapshot(conn, rows)
+        conn.execute("DELETE FROM safka_schema_meta WHERE key='shipping_refresh_error'")
 
