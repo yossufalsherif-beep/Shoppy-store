@@ -779,11 +779,11 @@ def check_safka_connection():
  # No DB writes, import, webhook registration, or provider order submission.
  if os.getenv('SHOPY_SAFKA_READ_ENABLED') != '1':
   flash('صفقة: تفعيل قراءة API غير مفعل على الاستضافة.')
-  return redirect('/admin#integrations')
+  return redirect('/admin')
  key=os.getenv('SHOPY_SAFKA_API_KEY','')
  if len(key.strip()) < 12:
   flash('صفقة: مفتاح API غير مُهيأ على الخادم.')
-  return redirect('/admin#integrations')
+  return redirect('/admin')
  from safka_probe import safe_keys
  from urllib.error import HTTPError, URLError
  for label,variable in [('المنتجات','SHOPY_SAFKA_PRODUCTS_PATH'),('الشحن','SHOPY_SAFKA_SHIPPING_PATH')]:
@@ -801,7 +801,7 @@ def check_safka_connection():
    flash('صفقة - '+label+': رفض HTTP '+str(exc.code)+'. راجع الصلاحيات والمسار الرسمي.')
   except (URLError,TimeoutError,OSError,ValueError,TypeError) as exc:
    flash('صفقة - '+label+': فشل الفحص ('+type(exc).__name__+'). لم يتغير أي منتج.')
- return redirect('/admin#integrations')
+ return redirect('/admin')
 
 @app.get('/admin/integrations')
 @admin_only
