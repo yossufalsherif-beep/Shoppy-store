@@ -32,8 +32,8 @@ def prepare_dry_run(conn, order_id):
         cost = item['supplier_unit_price_piastres']
         if not isinstance(cost, int) or cost <= 0:
             raise CatalogValidationError('Missing supplier cost snapshot: review manually')
-        if item['customer_unit_price_piastres'] != sale_price_piastres(cost):
-            raise CatalogValidationError('Product pricing differs from V4.2: review snapshot before submission')
+        if item['customer_unit_price_piastres'] < cost:
+            raise CatalogValidationError('Merchant price is below supplier cost: review before submission')
         items_total += item['customer_unit_price_piastres'] * item['quantity']
         supplier_items_total += cost * item['quantity']
     if items_total + buyer_ship != raw['customer_total_piastres']:

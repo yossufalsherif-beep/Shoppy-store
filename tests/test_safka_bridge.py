@@ -87,7 +87,7 @@ class PricingTests(unittest.TestCase):
         normalized=normalize_product({'id':1,'name':'منتج','price':100,'category':'اختبار'})
         self.assertIsNone(normalized['stock'])
 
-    def test_safka_public_product_list_mapping_remains_unpublished(self):
+    def test_safka_public_product_list_marked_order_requestable(self):
         sample = {'_id':'673a2c721548cec72da05e36', 'name':'منتج صفقة',
                   'barcode':'6RZ254b','sale_price':180,
                   'images':['https://example.com/a.jpg'],
@@ -101,7 +101,7 @@ class PricingTests(unittest.TestCase):
         with database() as conn:
             import_products(conn,[sample])
             imported=conn.execute("SELECT active FROM products WHERE source='safka'").fetchone()
-            self.assertEqual(imported['active'],0)
+            self.assertEqual(imported['active'],1)
 
     def test_safka_governorate_cities_expand_with_original_price_id(self):
         row = {'_id':'pr1','governorateNameAr':'القاهرة','price':95,
@@ -177,13 +177,14 @@ class CatalogDbTests(unittest.TestCase):
         self.assertEqual(row['active'],0)
         self.assertFalse(supplier_stock_ready(row))
 
-    def test_missing_stock_hidden(self):
+    def test_listed_supplier_product_without_quantity_is_requestable(self):
         p=fake_product('S2')
         del p['quantity']
         import_products(self.c,[p])
         row=self.c.execute("SELECT * FROM products WHERE source='safka'").fetchone()
-        self.assertEqual(row['active'],0)
-        self.assertFalse(supplier_stock_ready(row))
+        self.assertEqual(row['active'],1)
+        self.assertTrue(supplier_stock_ready(row))
+        self.assertIsNone(row['supplier_stock'])
 
     def test_invalid_catalog_atomic(self):
         with self.assertRaises(CatalogValidationError):
@@ -235,7 +236,7 @@ class CatalogDbTests(unittest.TestCase):
         self.assertTrue(supplier_stock_ready(p,1))
         self.assertFalse(supplier_stock_ready(p,500))
         self.c.execute('UPDATE products SET supplier_last_sync=? WHERE id=?',
-                       ((datetime.now(timezone.utc)-timedelta(hours=3)).isoformat(),p['id']))
+                       ((datetime.now(timezone.utc)-timedelta(days=5)).isoformat(),p['id']))
         self.assertFalse(supplier_stock_ready(self.c.execute('SELECT * FROM products WHERE id=?',(p['id'],)).fetchone()))
 
     def test_response_list_shapes(self):

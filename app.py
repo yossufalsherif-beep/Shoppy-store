@@ -81,12 +81,16 @@ def options_from_json(value):
  try:return json.loads(value or '{}')
  except (ValueError,TypeError):return {}
 
+def supplier_checkout_live():
+ from safka_auto_orders import live_enabled
+ return live_enabled()
+
 def safka_only_mode():
  return store_settings().get('catalog_mode')=='safka_only'
 
 @app.context_processor
 def context():
- return {'csrf':csrf(),'user':current_user(),'cart_count':sum(q for q in session.get('cart',{}).values() if isinstance(q,int)),'money':lambda x:f'{x/100:,.2f}', 'contact':store_settings(),'staging_mode':STAGING_MODE}
+ return {'csrf':csrf(),'user':current_user(),'cart_count':sum(q for q in session.get('cart',{}).values() if isinstance(q,int)),'money':lambda x:f'{x/100:,.2f}', 'contact':store_settings(),'staging_mode':STAGING_MODE and not supplier_checkout_live()}
 def current_user():
  uid=session.get('uid')
  if not uid:return None
@@ -100,16 +104,16 @@ def staging_gate():
    if not auth or not hmac.compare_digest(auth.password or '',private_password):
     return app.response_class('Staging access only',401,{'WWW-Authenticate':'Basic realm="Shopy Staging"'})
   # Customer accounts work independently of supplier checkout. A shopper must log in to order.
-  if request.path.startswith('/checkout'):
-   # Only the authenticated owner may generate a staging order for a live
-   # one-order provider test. Other visitors never get checkout access.
+  if request.path.startswith('/checkout') and not supplier_checkout_live():
+   # Public checkout requires a verified supplier contract, property mapping,
+   # approved commission policy, and an explicit production launch flag.
    owner = current_user() if os.getenv('SHOPY_STAGING_OWNER_CHECKOUT') == '1' else None
    if not owner or owner['role'] != 'admin':
-    abort(503,'Staging mode: customer checkout disabled')
+    abort(503,'Orders are temporarily unavailable during supplier setup')
 
 @app.after_request
 def noindex_staging(resp):
- if STAGING_MODE:
+ if STAGING_MODE and not supplier_checkout_live():
   resp.headers['X-Robots-Tag']='noindex, nofollow'
   resp.headers['Cache-Control']='no-store' if request.path.startswith(('/admin','/account','/login')) else 'private, no-cache'
  return resp
@@ -157,20 +161,20 @@ def home():
  capture_campaign()
  term=request.args.get('q','').strip()[:80]; category=request.args.get('category','').strip()[:200]
  with db() as c:
-  filters=["(active=1 OR source='safka')"];args=[]
+  filters=["(active=1 OR (source='safka' AND supplier_listed=1))"];args=[]
   if term:filters.append('(title LIKE ? OR description LIKE ?)');args.extend(['%'+term+'%','%'+term+'%'])
   if category:filters.append('category=?');args.append(category)
   items=c.execute('SELECT * FROM products WHERE '+' AND '.join(filters)+' ORDER BY id DESC',args).fetchall()
-  categories=[r['category'] for r in c.execute("SELECT DISTINCT category FROM products WHERE (active=1 OR source='safka') AND category!='' ORDER BY category")]
+  categories=[r['category'] for r in c.execute("SELECT DISTINCT category FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND category!='' ORDER BY category")]
  return render_template('home.html',items=items,term=term,category=category,categories=categories)
 
 @app.route('/products/<slug>')
 def product(slug):
  capture_campaign()
  with db() as c:
-  p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR source='safka')",(slug,)).fetchone()
+  p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(slug,)).fetchone()
   if not p:abort(404)
-  others=c.execute("SELECT * FROM products WHERE (active=1 OR source='safka') AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
+  others=c.execute("SELECT * FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
  with db() as c:media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
  return render_template('product.html',p=p,others=others,media=media,options=json.loads(p['options_json'] or '{}'),stock_ready=supplier_stock_ready(p))
 def product_choices(p):
@@ -328,6 +332,18 @@ def checkout():
      'payment_method':'الدفع عند الاستلام',
     },recipients=recipients,enabled=os.getenv('SHOPY_WA_ENABLED')=='1')
     c.commit()
+   if supplier_cart and supplier_checkout_live():
+    from safka_auto_orders import submit_saved_order_once
+    from safka_live_orders import OrderContractError
+    try:
+     submit_saved_order_once(db,cur.lastrowid)
+    except (OrderContractError,CatalogValidationError,ValueError,OSError,KeyError,TypeError) as exc:
+     # Customer order is already saved. Preflight failures are NOT supplier acceptance.
+     # Never leak the supplier API key, customer PII or transport response.
+     with db() as conn:
+      conn.execute("""UPDATE safka_order_outbox SET error=?,updated_at=CURRENT_TIMESTAMP
+           WHERE order_id=? AND status='awaiting_provider_configuration'""",
+           (type(exc).__name__[:80],cur.lastrowid))
   except ValueError as exc:
    flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
   session['cart']={};session.pop('checkout_key',None)
@@ -338,9 +354,13 @@ def checkout():
 @app.route('/order/success/<ref>')
 def order_success(ref):
  if ref not in session.get('my_order_refs',[]):abort(404)
- with db() as c:order=c.execute('SELECT reference,total,shipping_fee FROM orders WHERE reference=?',(ref,)).fetchone()
- if not order:abort(404)
- return render_template('success.html',ref=ref,order=order)
+ with db() as c:
+  order=c.execute('SELECT reference,total,shipping_fee,user_id,id FROM orders WHERE reference=?',(ref,)).fetchone()
+  if not order:abort(404)
+  user=current_user()
+  if not user or order['user_id']!=user['id']:abort(403)
+  supplier=c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(order['id'],)).fetchone()
+ return render_template('success.html',ref=ref,order=order,supplier=supplier)
 
 @app.route('/register',methods=['GET','POST'])
 def register():
@@ -407,7 +427,8 @@ def account():
  with db() as c:
   orders=c.execute('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 100',(u['id'],)).fetchall()
   details={o['id']:c.execute('SELECT title,quantity,unit_price FROM order_items WHERE order_id=?',(o['id'],)).fetchall() for o in orders}
- return render_template('account.html',orders=orders,details=details)
+  supplier_states={o['id']:c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(o['id'],)).fetchone() for o in orders}
+ return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states)
 @app.get('/admin/safka/order/<int:oid>/preview')
 @admin_only
 def preview_safka_order(oid):
@@ -819,50 +840,20 @@ def assistant():
 
 @app.post('/integrations/safka/hook/<kind>/<token>')
 def safka_incoming_hook(kind,token):
- from safka_webhooks import (authenticate_hook, valid_callback_key,
-                             product_identifier,fetch_product_detail,verified_availability)
- from safka_bridge import CatalogValidationError
- from urllib.error import HTTPError, URLError
+ from safka_webhooks import authenticate_hook,valid_callback_key
  if kind not in ('product','order','callback') or not authenticate_hook(app.secret_key,kind,token):
   abort(404)
- if request.content_length and request.content_length>32768:
-  abort(413)
- if not request.is_json:
-  abort(415)
+ if request.content_length and request.content_length>32768:abort(413)
+ if not request.is_json:abort(415)
  data=request.get_json(silent=True)
- if not isinstance(data,dict):
-  abort(400)
+ if not isinstance(data,dict):abort(400)
  if kind=='callback':
-  # An unsolicited or different API key must never overwrite deployment secrets.
-  # The configured credential is already stored in Vercel; only validate match.
-  if not valid_callback_key(data,os.getenv('SHOPY_SAFKA_API_KEY','')):
-   abort(403)
+  if not valid_callback_key(data,os.getenv('SHOPY_SAFKA_API_KEY','')):abort(403)
   return ('',204)
- if kind=='order':
-  # Order event schema/signature has not yet been verified. Acknowledge receipt,
-  # but deliberately do not modify order status based on callback claims.
-  return ('',202)
- # productHook means a product was opened in Safka, not a live inventory event.
- # Only an authenticated provider detail GET can change an existing stock snapshot.
- product_id=product_identifier(data)
- if product_id is None:
-  return ('',202)
- if os.getenv('SHOPY_SAFKA_READ_ENABLED')!='1':
-  return ('',503)
- try:
-  item,raw=fetch_product_detail(os.getenv('SHOPY_SAFKA_API_KEY',''),product_id)
-  availability=verified_availability(item,raw)
-  # Keep public purchase disabled when quantity is missing or record inactive.
-  quantity=item['stock'] if availability else (0 if availability is False else None)
-  active=1 if availability is True else 0
-  from datetime import datetime,timezone
-  now=datetime.now(timezone.utc).isoformat()
-  with db() as conn:
-   conn.execute("""UPDATE products SET supplier_stock=?,active=?,supplier_last_sync=?
-        WHERE source='safka' AND supplier_product_id=?""",(quantity,active,now,product_id))
- except (CatalogValidationError,HTTPError,URLError,ValueError,TypeError,KeyError,OSError):
-  return ('',202)
- return ('',204)
+ # Safka productHook means the affiliate opened a product. It is NOT
+ # verified inventory state and must never hide or publish our catalog.
+ # Unknown orderHook event schemas must also not change buyer order status.
+ return ('',202)
 
 
 @app.post('/admin/safka/sync')
@@ -881,6 +872,16 @@ def sync_safka_owner():
  if len(key.strip())<12:
   return fail('مفتاح API غير مهيأ')
  kind=request.form.get('kind','')
+ if kind=='restart-products':
+  # Owner starts a fresh full-catalog scan from page one.
+  with db() as conn:
+   for k,v in [('safka_admin_next_page','1'),('safka_cycle_generation',''),('safka_cycle_total_pages','')]:
+    conn.execute("""INSERT INTO store_settings(key,value) VALUES(?,?)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value""",(k,v))
+  result=dict(ok=True,kind=kind,message='بدأ تحديث الكتالوج الكامل من أول صفحة')
+  if wants_json:return jsonify(result)
+  flash(result['message'])
+  return redirect('/admin#integrations')
  if kind not in ('products','shipping'):
   abort(400)
  from safka_admin_sync import api_page,checked_products,checked_shipping,sync_product_page,sync_shipping_snapshot
@@ -898,7 +899,8 @@ def sync_safka_owner():
    with db() as conn:result=sync_product_page(conn,records,page,pages)
    message='تم استيراد '+str(count)+' منتج. الدفعة '+str(page)+' من '+str(pages)+'.'
    outcome=dict(ok=True,kind=kind,imported=count,page=page,total_pages=pages,
-                next_page=result['next_page'],cycle_complete=result['cycle_complete'],message=message)
+                next_page=result['next_page'],cycle_complete=result['cycle_complete'],
+                archived=result['archived'],message=message)
   else:
    payload,records=api_page(key,path,'shipping',page=1,size=50,timeout=8)
    rates=checked_shipping(payload,records)
