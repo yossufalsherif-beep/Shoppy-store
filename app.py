@@ -157,20 +157,20 @@ def home():
  capture_campaign()
  term=request.args.get('q','').strip()[:80]; category=request.args.get('category','').strip()[:200]
  with db() as c:
-  filters=["(active=1 OR source='safka')"];args=[]
+  filters=["(active=1 OR (source='safka' AND supplier_listed=1))"];args=[]
   if term:filters.append('(title LIKE ? OR description LIKE ?)');args.extend(['%'+term+'%','%'+term+'%'])
   if category:filters.append('category=?');args.append(category)
   items=c.execute('SELECT * FROM products WHERE '+' AND '.join(filters)+' ORDER BY id DESC',args).fetchall()
-  categories=[r['category'] for r in c.execute("SELECT DISTINCT category FROM products WHERE (active=1 OR source='safka') AND category!='' ORDER BY category")]
+  categories=[r['category'] for r in c.execute("SELECT DISTINCT category FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND category!='' ORDER BY category")]
  return render_template('home.html',items=items,term=term,category=category,categories=categories)
 
 @app.route('/products/<slug>')
 def product(slug):
  capture_campaign()
  with db() as c:
-  p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR source='safka')",(slug,)).fetchone()
+  p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(slug,)).fetchone()
   if not p:abort(404)
-  others=c.execute("SELECT * FROM products WHERE (active=1 OR source='safka') AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
+  others=c.execute("SELECT * FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
  with db() as c:media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
  return render_template('product.html',p=p,others=others,media=media,options=json.loads(p['options_json'] or '{}'),stock_ready=supplier_stock_ready(p))
 def product_choices(p):
