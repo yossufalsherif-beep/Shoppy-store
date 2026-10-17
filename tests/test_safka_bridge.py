@@ -168,6 +168,15 @@ class CatalogDbTests(unittest.TestCase):
         self.assertEqual(after['active'],0)
         self.assertEqual(self.c.execute("SELECT COUNT(*) FROM products WHERE source='safka'").fetchone()[0],1)
 
+    def test_supplier_inactive_listing_never_orderable(self):
+        p=fake_product('INACTIVE',30,5)
+        p['is_active']=False
+        import_products(self.c,[p])
+        row=self.c.execute("SELECT * FROM products WHERE source='safka'").fetchone()
+        self.assertEqual(row['supplier_available'],0)
+        self.assertEqual(row['active'],0)
+        self.assertFalse(supplier_stock_ready(row))
+
     def test_missing_stock_hidden(self):
         p=fake_product('S2')
         del p['quantity']
