@@ -565,8 +565,37 @@ def preview_safka_order(oid):
   outbox=conn.execute('SELECT status,supplier_order_id,attempt_count,submitted_commission_piastres FROM safka_order_outbox WHERE order_id=?',(oid,)).fetchone()
  test_enabled=(STAGING_MODE and os.getenv('SHOPY_SAFKA_TEST_SEND_ENABLED')=='1'
                 and os.getenv('SHOPY_SAFKA_ORDER_PUSH_ACTIVE','0')=='0')
+ verified_property_id=None
+ property_note='تأكيد خاصية المنتج يتطلب قراءة تفاصيل رسمية من صفقة.'
+ if (outbox and outbox['status']=='awaiting_provider_configuration'
+       and len(preview['items'])==1
+       and len(os.getenv('SHOPY_SAFKA_API_KEY','').strip())>=12):
+  try:
+   from safka_webhooks import fetch_product_detail
+   source_id=preview['items'][0]['supplier_product_id']
+   detail,provider_raw=fetch_product_detail(os.getenv('SHOPY_SAFKA_API_KEY',''),source_id)
+   props=provider_raw.get('properties')
+   if detail['supplier_cost']!=preview['items'][0]['supplier_unit_price_piastres']:
+    property_note='سعر المورد اتغير منذ حفظ المسودة؛ لا ترسل الطلب قبل إعادة التجهيز.'
+   elif provider_raw.get('is_active') is False:
+    property_note='المنتج غير نشط حاليًا في صفقة.'
+   elif isinstance(props,list) and len(props)==1 and isinstance(props[0],dict):
+    candidate=props[0].get('_id')
+    if (isinstance(candidate,str) and re.fullmatch(r'[a-fA-F0-9]{24}',candidate)
+          and props[0].get('is_active') is not False):
+     verified_property_id=candidate
+     property_note='تم التحقق من خاصية المنتج الوحيدة في صفقة وملء معرّفها تلقائيًا.'
+    else:
+     property_note='خاصية المنتج الوحيدة غير مؤكدة؛ اختر منتجًا آخر للاختبار.'
+   else:
+    property_note='المنتج له اختيارات متعددة أو لا توجد خاصية واضحة؛ اختر منتجًا بسيطًا للاختبار الأول.'
+  except (CatalogValidationError,ValueError,KeyError,TypeError,OSError):
+   property_note='تعذرت قراءة تفاصيل المنتج من صفقة حاليًا؛ لا ترسل الطلب.'
+  except Exception:
+   property_note='تعذر إكمال التحقق من خاصية المنتج؛ لا ترسل الطلب.'
  return render_template('safka_preview.html',preview=preview,outbox=outbox,order_id=oid,
-                        test_enabled=test_enabled)
+                        test_enabled=test_enabled,verified_property_id=verified_property_id,
+                        property_note=property_note)
 
 @app.post('/admin/safka/order/<int:oid>/submit-test')
 @admin_only
