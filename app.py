@@ -840,50 +840,20 @@ def assistant():
 
 @app.post('/integrations/safka/hook/<kind>/<token>')
 def safka_incoming_hook(kind,token):
- from safka_webhooks import (authenticate_hook, valid_callback_key,
-                             product_identifier,fetch_product_detail,verified_availability)
- from safka_bridge import CatalogValidationError
- from urllib.error import HTTPError, URLError
+ from safka_webhooks import authenticate_hook,valid_callback_key
  if kind not in ('product','order','callback') or not authenticate_hook(app.secret_key,kind,token):
   abort(404)
- if request.content_length and request.content_length>32768:
-  abort(413)
- if not request.is_json:
-  abort(415)
+ if request.content_length and request.content_length>32768:abort(413)
+ if not request.is_json:abort(415)
  data=request.get_json(silent=True)
- if not isinstance(data,dict):
-  abort(400)
+ if not isinstance(data,dict):abort(400)
  if kind=='callback':
-  # An unsolicited or different API key must never overwrite deployment secrets.
-  # The configured credential is already stored in Vercel; only validate match.
-  if not valid_callback_key(data,os.getenv('SHOPY_SAFKA_API_KEY','')):
-   abort(403)
+  if not valid_callback_key(data,os.getenv('SHOPY_SAFKA_API_KEY','')):abort(403)
   return ('',204)
- if kind=='order':
-  # Order event schema/signature has not yet been verified. Acknowledge receipt,
-  # but deliberately do not modify order status based on callback claims.
-  return ('',202)
- # productHook means a product was opened in Safka, not a live inventory event.
- # Only an authenticated provider detail GET can change an existing stock snapshot.
- product_id=product_identifier(data)
- if product_id is None:
-  return ('',202)
- if os.getenv('SHOPY_SAFKA_READ_ENABLED')!='1':
-  return ('',503)
- try:
-  item,raw=fetch_product_detail(os.getenv('SHOPY_SAFKA_API_KEY',''),product_id)
-  availability=verified_availability(item,raw)
-  # Keep public purchase disabled when quantity is missing or record inactive.
-  quantity=item['stock'] if availability else (0 if availability is False else None)
-  active=1 if availability is True else 0
-  from datetime import datetime,timezone
-  now=datetime.now(timezone.utc).isoformat()
-  with db() as conn:
-   conn.execute("""UPDATE products SET supplier_stock=?,active=?,supplier_last_sync=?
-        WHERE source='safka' AND supplier_product_id=?""",(quantity,active,now,product_id))
- except (CatalogValidationError,HTTPError,URLError,ValueError,TypeError,KeyError,OSError):
-  return ('',202)
- return ('',204)
+ # Safka productHook means the affiliate opened a product. It is NOT
+ # verified inventory state and must never hide or publish our catalog.
+ # Unknown orderHook event schemas must also not change buyer order status.
+ return ('',202)
 
 
 @app.post('/admin/safka/sync')
