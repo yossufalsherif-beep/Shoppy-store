@@ -2,12 +2,12 @@
  <div class="product-cover">
   {% if item.image %}<img src="{{item.image}}" alt="{{item.title}}" loading="lazy">
   {% else %}<div class="product-fallback"><span class="fallback-logo">S</span><span>Shopy Store</span></div>{% endif %}
-  {% if item.source!='safka' or (item.supplier_stock is not none and item.supplier_stock>0 and item.active) %}
+  {% if item.source!='safka' or (item.active and item.supplier_listed) %}
   <span class="product-stock-badge in-stock">متوفر</span>
   {% elif item.supplier_available is not none and not item.supplier_available %}
   <span class="product-stock-badge out-stock">غير متوفر</span>
   {% elif item.supplier_available is not none and item.supplier_available %}
-  <span class="product-stock-badge supplier-listing">معروض لدى المورد</span>
+  <span class="product-stock-badge supplier-listing">متوفر للطلب</span>
   {% else %}
   <span class="product-stock-badge checking-stock">جاري تأكيد التوفر</span>
   {% endif %}
