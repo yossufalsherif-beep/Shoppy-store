@@ -15,3 +15,22 @@
 /* Supplier-synced merchandise information */
 .supplier-note,.supplier-state {display:block;line-height:1.8;font-size:.86rem;color:#44645a;margin:9px 0;}
 .sync-log {padding:10px 0;margin:8px 0;border-top:1px solid #e6ece9;}
+
+/* Customer-facing catalog indicators and accessible automatic gallery */
+.product-cover{position:relative}
+.product-stock-badge{position:absolute;top:12px;right:12px;z-index:2;font-size:12px;font-weight:750;padding:5px 10px;border-radius:999px;box-shadow:0 2px 10px #0001}
+.stock-tag{display:inline-flex;padding:5px 12px;border-radius:999px;font-size:12px;font-weight:700;margin-inline-start:8px}
+.in-stock{background:#e3f5e9;color:#17633c}
+.out-stock{background:#fce8e8;color:#9f3232}
+.checking-stock{background:#fff2d6;color:#76520e}
+.product-rating{display:block;color:#a96906;font-weight:700;font-size:14px;margin:8px 0}
+.product-rating small,.product-rating span{color:var(--muted);font-weight:400}
+.gallery-main{position:relative;cursor:zoom-in}
+.gallery-main video{width:100%;height:100%;max-height:520px;object-fit:contain;cursor:auto}
+.gallery-controls{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:12px auto;max-width:240px}
+.gallery-arrow{width:45px;height:45px;display:grid;place-items:center;border:1px solid #d5ded7;border-radius:50%;background:white;color:#253d34;font-size:20px;transition:background .2s}
+.gallery-arrow:hover,.gallery-arrow:focus-visible{background:#e3f0e7;outline:2px solid #769b86;outline-offset:2px}
+.gallery-counter{font-size:13px;font-weight:700;color:#526358;direction:ltr}
+.product-description{white-space:pre-line;overflow-wrap:anywhere;line-height:1.9}
+.thumb:focus-visible{outline:3px solid #477e67;outline-offset:3px}
+@media (prefers-reduced-motion:reduce){.gallery-arrow{transition:none}}
