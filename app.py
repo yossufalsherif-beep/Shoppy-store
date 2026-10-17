@@ -494,7 +494,7 @@ FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id GROUP BY o.id''').fet
  from safka_webhooks import webhook_token
  hook_base=request.url_root.rstrip('/')+'/integrations/safka/hook/'
  safka_hook_urls={kind:hook_base+kind+'/'+webhook_token(app.secret_key,kind) for kind in ('product','order','callback')}
-  return render_template('admin.html',safka_hook_urls=safka_hook_urls,orders=orders,products=products,rates=rates,details=details,media_counts=media_counts,product_media=product_media,notify_status=notify_status,zones=zones,funnels=funnels,states=states,estimated_margin=estimated_margin,margin_order_count=len(priced),settings=settings,wa_configured=os.environ.get('SHOPY_WA_ENABLED')=='1',safka_states=safka_states,safka_sync=safka_sync,safka_count=safka_count,cleanup_state=cleanup_state,safka_only=safka_only_mode(),cleanup_text=CONFIRM_TEXT,api_read_enabled=os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1',api_key_present=bool(os.getenv('SHOPY_SAFKA_API_KEY')))
+ return render_template('admin.html',safka_hook_urls=safka_hook_urls,orders=orders,products=products,rates=rates,details=details,media_counts=media_counts,product_media=product_media,notify_status=notify_status,zones=zones,funnels=funnels,states=states,estimated_margin=estimated_margin,margin_order_count=len(priced),settings=settings,wa_configured=os.environ.get('SHOPY_WA_ENABLED')=='1',safka_states=safka_states,safka_sync=safka_sync,safka_count=safka_count,cleanup_state=cleanup_state,safka_only=safka_only_mode(),cleanup_text=CONFIRM_TEXT,api_read_enabled=os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1',api_key_present=bool(os.getenv('SHOPY_SAFKA_API_KEY')))
 
 def parse_money(value):
  try:
