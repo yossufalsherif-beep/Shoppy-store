@@ -326,11 +326,11 @@ def checkout():
     },recipients=recipients,enabled=os.getenv('SHOPY_WA_ENABLED')=='1')
     c.commit()
   except ValueError as exc:
-   flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates)
+   flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
   session['cart']={};session.pop('checkout_key',None)
   session.setdefault('my_order_refs',[]).append(ref)
   return redirect('/order/success/'+ref)
- return render_template('checkout.html',rows=rows,rates=rates)
+ return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
 
 @app.route('/order/success/<ref>')
 def order_success(ref):
@@ -347,7 +347,11 @@ def register():
   else:
    try:
     with db() as c:
-     cur=c.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(email,generate_password_hash(pw),'customer'));session.clear();session['uid']=cur.lastrowid
+     cur=c.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(email,generate_password_hash(pw),'customer'))
+     campaign=(session.get('utm_source',''),session.get('utm_campaign',''))
+     session.clear();session['uid']=cur.lastrowid
+     if campaign[0]:session['utm_source']=campaign[0]
+     if campaign[1]:session['utm_campaign']=campaign[1]
     return redirect('/account')
    except Exception as exc:
     if isinstance(exc, sqlite3.IntegrityError) or (exc.__class__.__name__ == 'UniqueViolation' and exc.__class__.__module__.startswith('psycopg')):flash('البريد مستخدم بالفعل')
@@ -384,7 +388,11 @@ def login():
  if request.method=='POST':
   with db() as c:u=c.execute('SELECT * FROM users WHERE email=?',(request.form.get('email','').strip().lower(),)).fetchone()
   if u and check_password_hash(u['password'],request.form.get('password','')):
-   session.clear();session['uid']=u['id'];return redirect('/admin' if u['role']=='admin' else '/account')
+   campaign=(session.get('utm_source',''),session.get('utm_campaign',''))
+   session.clear();session['uid']=u['id']
+   if campaign[0]:session['utm_source']=campaign[0]
+   if campaign[1]:session['utm_campaign']=campaign[1]
+   return redirect('/admin' if u['role']=='admin' else '/account')
   flash('بيانات الدخول غير صحيحة')
  return render_template('auth.html',mode='login')
 @app.post('/logout')
