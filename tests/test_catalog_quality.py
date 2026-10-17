@@ -31,7 +31,9 @@ class CatalogQualityTests(unittest.TestCase):
   conn=sqlite3.connect(':memory:');conn.row_factory=sqlite3.Row
   conn.executescript("""CREATE TABLE products(id INTEGER PRIMARY KEY,title TEXT,slug TEXT UNIQUE,description TEXT,
     price INTEGER,image TEXT,active INTEGER,options_json TEXT,category TEXT,supplier_cost INTEGER);
-    CREATE TABLE product_media(id INTEGER PRIMARY KEY,product_id INTEGER,kind TEXT,path TEXT,position INTEGER);""")
+    CREATE TABLE product_media(id INTEGER PRIMARY KEY,product_id INTEGER,kind TEXT,path TEXT,position INTEGER);
+    CREATE TABLE orders(id INTEGER PRIMARY KEY,reference TEXT,total INTEGER,shipping_fee INTEGER,customer TEXT,phone TEXT,governorate TEXT,address TEXT);
+    CREATE TABLE order_items(id INTEGER PRIMARY KEY,order_id INTEGER,product_id INTEGER,title TEXT,unit_price INTEGER,quantity INTEGER);""")
   init_safka_schema(conn)
   supplier={'_id':'supplier123','name':'سماعة صفقة','sale_price':100,'is_active':True,
             'description':'<p>وصف صفقة</p>'}
