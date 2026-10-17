@@ -6,6 +6,7 @@ from functools import wraps
 from flask import Flask, request, redirect, session, render_template, abort, flash, jsonify
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
+from catalog_quality import clean_description
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
 from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, CatalogValidationError
 from safka_dry_run import prepare_dry_run
@@ -69,6 +70,9 @@ CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);'''
   # Never auto-seed demonstration catalog or arbitrary shipping prices.
   # User-owned records remain until an explicit backup + cleanup operation.
 def csrf():return session.setdefault('csrf',secrets.token_urlsafe(24))
+@app.template_filter('product_description')
+def product_description(value):return clean_description(value)
+
 @app.template_filter('options_from_json')
 def options_from_json(value):
  try:return json.loads(value or '{}')
@@ -92,9 +96,7 @@ def staging_gate():
    auth=request.authorization
    if not auth or not hmac.compare_digest(auth.password or '',private_password):
     return app.response_class('Staging access only',401,{'WWW-Authenticate':'Basic realm="Shopy Staging"'})
-  # Block customer checkout and account registration during integration testing.
-  if request.path.startswith('/register'):
-   abort(503,'Staging mode: public registration disabled')
+  # Customer accounts work independently of supplier checkout. A shopper must log in to order.
   if request.path.startswith('/checkout'):
    # Only the authenticated owner may generate a staging order for a live
    # one-order provider test. Other visitors never get checkout access.
@@ -247,6 +249,10 @@ def quote_shipping():
 
 @app.route('/checkout',methods=['GET','POST'])
 def checkout():
+ if not current_user():
+  session['checkout_after_login']=True
+  flash('سجل دخولك أو أنشئ حسابًا لتأكيد طلبك ومتابعته.')
+  return redirect('/login')
  rows=cart_data()
  if not rows:return redirect('/cart')
  if not session.get('checkout_key'):session['checkout_key']=secrets.token_urlsafe(24)
@@ -571,9 +577,8 @@ def add_media(pid):
 @app.post('/admin/product/<int:pid>/edit')
 @admin_only
 def edit_product(pid):
- if safka_only_mode():abort(403,'المنتجات والشحن يتم تحديثها من صفقة فقط')
  title=request.form.get('title','').strip()[:180]
- desc=request.form.get('description','').strip()[:5000]
+ desc=clean_description(request.form.get('description','').strip()[:20000])
  category=request.form.get('category','').strip()[:80]
  raw_cost=request.form.get('supplier_cost','').strip()
  supplier_cost=parse_money(raw_cost) if raw_cost else None
@@ -587,8 +592,19 @@ def edit_product(pid):
  with db() as c:
   product=c.execute('SELECT source FROM products WHERE id=?',(pid,)).fetchone()
   if not product:abort(404)
-  if product['source']=='safka':abort(403,'Supplier-managed price and data cannot be edited manually')
-  c.execute('UPDATE products SET title=?,description=?,price=?,options_json=?,category=?,supplier_cost=? WHERE id=?',(title,desc,price,json.dumps(options,ensure_ascii=False),category,supplier_cost,pid))
+  if product['source']=='safka':
+   # Save a durable merchant-owned overlay. Supplier sync updates base data,
+   # then reapplies these fields without changing verified supplier costs/stock.
+   c.execute("""INSERT INTO product_overrides(product_id,title,description,category,price,options_json)
+   VALUES(?,?,?,?,?,?) ON CONFLICT(product_id) DO UPDATE SET title=excluded.title,
+   description=excluded.description,category=excluded.category,price=excluded.price,
+   options_json=excluded.options_json""",(pid,title,desc,category,price,json.dumps(options,ensure_ascii=False)))
+   c.execute('UPDATE products SET title=?,description=?,price=?,options_json=?,category=? WHERE id=?',
+             (title,desc,price,json.dumps(options,ensure_ascii=False),category,pid))
+  else:
+   if safka_only_mode():abort(403)
+   c.execute('UPDATE products SET title=?,description=?,price=?,options_json=?,category=?,supplier_cost=? WHERE id=?',
+             (title,desc,price,json.dumps(options,ensure_ascii=False),category,supplier_cost,pid))
  flash('تم تحديث المنتج')
  return redirect('/admin#products')
 
