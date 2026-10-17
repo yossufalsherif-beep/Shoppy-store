@@ -26,6 +26,25 @@ class CustomerExperienceTests(unittest.TestCase):
         return 'customer-test-csrf'
     def register(self,email='customer@test.example'):
         return self.client.post('/register',data={'csrf':self.token(),'email':email,'password':'strong-customer-password'})
+    def test_guest_cart_survives_registration_and_resumes_delivery_checkout(self):
+        self.client.post('/cart/add/1',data={'csrf':self.token()})
+        self.assertEqual(self.client.get('/checkout').status_code,302)
+        created=self.register()
+        self.assertEqual(created.status_code,302)
+        self.assertEqual(created.headers['Location'],'/checkout')
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess['cart']['1'],1)
+            self.assertIn('uid',sess)
+        checkout=self.client.get('/checkout')
+        self.assertEqual(checkout.status_code,200)
+        self.assertIn('بيانات استلام طلبك'.encode(),checkout.data)
+    def test_heart_selection_survives_login_and_register(self):
+        self.client.post('/favorites/toggle/1',data={'csrf':self.token()})
+        response=self.register('heart@test.example')
+        self.assertEqual(response.status_code,302)
+        self.assertEqual(response.headers['Location'],'/favorites')
+        self.assertIn('منتج عادي'.encode(),self.client.get('/favorites').data)
+
     def test_unauthenticated_wishlist_and_reviews_require_login(self):
         self.assertEqual(self.client.get('/favorites').status_code,302)
         self.assertEqual(self.client.post('/favorites/toggle/1',data={'csrf':self.token()}).status_code,302)
