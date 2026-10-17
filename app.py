@@ -124,7 +124,7 @@ def staging_gate():
    if not auth or not hmac.compare_digest(auth.password or '',private_password):
     return app.response_class('Staging access only',401,{'WWW-Authenticate':'Basic realm="Shopy Staging"'})
   # Customer accounts work independently of supplier checkout. A shopper must log in to order.
-  if request.path.startswith('/checkout') and not supplier_checkout_live():
+  if request.path.startswith('/checkout') and request.method=='POST' and not supplier_checkout_live():
    # Public checkout requires a verified supplier contract, property mapping,
    # approved commission policy, and an explicit production launch flag.
    owner = current_user() if os.getenv('SHOPY_STAGING_OWNER_CHECKOUT') == '1' else None
@@ -320,7 +320,7 @@ def safka_shipping_cities():
 def checkout():
  if not current_user():
   session['checkout_after_login']=True
-  flash('سجل دخولك أو أنشئ حسابًا لتأكيد طلبك ومتابعته.')
+  flash('سجل دخولك أو أنشئ حسابًا لتكمل بيانات الاستلام وتتابع الطلب.')
   return redirect('/login')
  rows=cart_data()
  if not rows:return redirect('/cart')
@@ -337,7 +337,8 @@ def checkout():
   address=request.form.get('address','').strip()[:500];city=request.form.get('city','').strip()[:80];area=request.form.get('area','').strip()[:80]
   if len(name)<2 or not re.fullmatch(r'01[0125]\d{8}',phone) or len(address)<8 or len(city)<2 or len(area)<2:
    flash('راجع الاسم ورقم الموبايل والمدينة والمنطقة والعنوان التفصيلي')
-   return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
+   return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
+                        checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
   key=session['checkout_key']
   try:
    with db() as c:
@@ -346,7 +347,7 @@ def checkout():
     if existing:return redirect('/order/success/'+existing['reference'])
     if mixed_cart:raise ValueError('قسم الطلب: لا يمكن شحن منتجات صفقة ومنتجاتك اليدوية معًا حاليًا')
     rate=(quote_safka_shipping if supplier_cart else shipping_quote)(c,gov,city,area)
-    if rate is None:raise ValueError('لا يوجد سعر شحن مؤكد من المورد لهذه المنطقة')
+    if rate is None:raise ValueError('الشحن غير متاح للعنوان المحدد حاليًا. اختر منطقة مدعومة.')
     fresh=[]
     quantities_by_product={}
     for p,q,choices,_ in rows:
@@ -402,7 +403,8 @@ def checkout():
   session['cart']={};session.pop('checkout_key',None)
   session.setdefault('my_order_refs',[]).append(ref)
   return redirect('/order/success/'+ref)
- return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
+ return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
+                        checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
 
 @app.route('/order/success/<ref>')
 def order_success(ref):
