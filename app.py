@@ -81,12 +81,16 @@ def options_from_json(value):
  try:return json.loads(value or '{}')
  except (ValueError,TypeError):return {}
 
+def supplier_checkout_live():
+ from safka_auto_orders import live_enabled
+ return live_enabled()
+
 def safka_only_mode():
  return store_settings().get('catalog_mode')=='safka_only'
 
 @app.context_processor
 def context():
- return {'csrf':csrf(),'user':current_user(),'cart_count':sum(q for q in session.get('cart',{}).values() if isinstance(q,int)),'money':lambda x:f'{x/100:,.2f}', 'contact':store_settings(),'staging_mode':STAGING_MODE}
+ return {'csrf':csrf(),'user':current_user(),'cart_count':sum(q for q in session.get('cart',{}).values() if isinstance(q,int)),'money':lambda x:f'{x/100:,.2f}', 'contact':store_settings(),'staging_mode':STAGING_MODE and not supplier_checkout_live()}
 def current_user():
  uid=session.get('uid')
  if not uid:return None
@@ -100,16 +104,16 @@ def staging_gate():
    if not auth or not hmac.compare_digest(auth.password or '',private_password):
     return app.response_class('Staging access only',401,{'WWW-Authenticate':'Basic realm="Shopy Staging"'})
   # Customer accounts work independently of supplier checkout. A shopper must log in to order.
-  if request.path.startswith('/checkout'):
-   # Only the authenticated owner may generate a staging order for a live
-   # one-order provider test. Other visitors never get checkout access.
+  if request.path.startswith('/checkout') and not supplier_checkout_live():
+   # Public checkout requires a verified supplier contract, property mapping,
+   # approved commission policy, and an explicit production launch flag.
    owner = current_user() if os.getenv('SHOPY_STAGING_OWNER_CHECKOUT') == '1' else None
    if not owner or owner['role'] != 'admin':
-    abort(503,'Staging mode: customer checkout disabled')
+    abort(503,'Orders are temporarily unavailable during supplier setup')
 
 @app.after_request
 def noindex_staging(resp):
- if STAGING_MODE:
+ if STAGING_MODE and not supplier_checkout_live():
   resp.headers['X-Robots-Tag']='noindex, nofollow'
   resp.headers['Cache-Control']='no-store' if request.path.startswith(('/admin','/account','/login')) else 'private, no-cache'
  return resp
@@ -328,6 +332,18 @@ def checkout():
      'payment_method':'الدفع عند الاستلام',
     },recipients=recipients,enabled=os.getenv('SHOPY_WA_ENABLED')=='1')
     c.commit()
+   if supplier_cart and supplier_checkout_live():
+    from safka_auto_orders import submit_saved_order_once
+    from safka_live_orders import OrderContractError
+    try:
+     submit_saved_order_once(db,cur.lastrowid)
+    except (OrderContractError,CatalogValidationError,ValueError,OSError,KeyError,TypeError) as exc:
+     # Customer order is already saved. Preflight failures are NOT supplier acceptance.
+     # Never leak the supplier API key, customer PII or transport response.
+     with db() as conn:
+      conn.execute("""UPDATE safka_order_outbox SET error=?,updated_at=CURRENT_TIMESTAMP
+           WHERE order_id=? AND status='awaiting_provider_configuration'""",
+           (type(exc).__name__[:80],cur.lastrowid))
   except ValueError as exc:
    flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
   session['cart']={};session.pop('checkout_key',None)
@@ -338,9 +354,13 @@ def checkout():
 @app.route('/order/success/<ref>')
 def order_success(ref):
  if ref not in session.get('my_order_refs',[]):abort(404)
- with db() as c:order=c.execute('SELECT reference,total,shipping_fee FROM orders WHERE reference=?',(ref,)).fetchone()
- if not order:abort(404)
- return render_template('success.html',ref=ref,order=order)
+ with db() as c:
+  order=c.execute('SELECT reference,total,shipping_fee,user_id,id FROM orders WHERE reference=?',(ref,)).fetchone()
+  if not order:abort(404)
+  user=current_user()
+  if not user or order['user_id']!=user['id']:abort(403)
+  supplier=c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(order['id'],)).fetchone()
+ return render_template('success.html',ref=ref,order=order,supplier=supplier)
 
 @app.route('/register',methods=['GET','POST'])
 def register():
@@ -407,7 +427,8 @@ def account():
  with db() as c:
   orders=c.execute('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 100',(u['id'],)).fetchall()
   details={o['id']:c.execute('SELECT title,quantity,unit_price FROM order_items WHERE order_id=?',(o['id'],)).fetchall() for o in orders}
- return render_template('account.html',orders=orders,details=details)
+  supplier_states={o['id']:c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(o['id'],)).fetchone() for o in orders}
+ return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states)
 @app.get('/admin/safka/order/<int:oid>/preview')
 @admin_only
 def preview_safka_order(oid):
