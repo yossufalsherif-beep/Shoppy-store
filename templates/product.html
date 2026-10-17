@@ -36,7 +36,7 @@
   <span class="pill">Shopy Store</span>
   {% if p.source!='safka' or stock_ready %}<span class="stock-tag in-stock">متوفر</span>
   {% elif p.supplier_available is not none and not p.supplier_available %}<span class="stock-tag out-stock">غير متوفر حاليًا</span>
-  {% elif p.supplier_available is not none and p.supplier_available %}<span class="stock-tag supplier-listing">معروض لدى المورد</span>
+  {% elif p.supplier_available is not none and p.supplier_available %}<span class="stock-tag supplier-listing">متوفر للطلب</span>
   {% else %}<span class="stock-tag checking-stock">جاري تأكيد التوفر</span>{% endif %}
   <h1>{{p.title}}</h1>
   {% if p.supplier_rating is not none and p.supplier_review_count and p.supplier_review_count>0 %}
