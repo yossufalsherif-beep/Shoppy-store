@@ -84,16 +84,62 @@ def checked_shipping(payload, records):
 
 
 def sync_product_page(conn, records, page, pages):
-    # Single DB transaction in the caller: upsert plus cursor checkpoint.
-    result=import_products(conn,records,complete=False,source_label='api-admin-batch')
-    # Unverified stock: imported Safka merchandise stays unpublished.
-    conn.execute("UPDATE products SET active=0 WHERE source='safka'")
-    next_page=page+1 if page<pages else 1
-    conn.execute(
-        "INSERT INTO store_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        ('safka_admin_next_page',str(next_page)))
-    return {'imported':result['updated'],'next_page':next_page,'total_pages':pages,
-            'cycle_complete':page==pages}
+    """Resumable full-catalog reconciliation: replace the visible supplier listing
+    only AFTER all pages have been verified and imported successfully.
+
+    Removes unavailable Safka items from public search with a soft archive.
+    Never physically deletes products referenced by historical orders.
+    """
+    import uuid
+    if not isinstance(page,int) or not 1<=page<=pages<=10000:
+        raise CatalogValidationError('Invalid supplier pagination')
+    normalized=[normalize_product(record) for record in records]
+    ids=[row['supplier_id'] for row in normalized]
+    if not ids or len(set(ids))!=len(ids):
+        raise CatalogValidationError('Duplicate or missing Safka product ID')
+    conn.execute('SAVEPOINT safka_full_sync')
+    try:
+        def setting(name):
+            row=conn.execute('SELECT value FROM store_settings WHERE key=?',(name,)).fetchone()
+            return row['value'] if row else None
+        def set_setting(name,value):
+            conn.execute("""INSERT INTO store_settings(key,value) VALUES(?,?)
+                            ON CONFLICT(key) DO UPDATE SET value=excluded.value""",(name,str(value)))
+        if page==1:
+            # Start a new generation only at page one; retries are idempotent.
+            generation=uuid.uuid4().hex
+            set_setting('safka_cycle_generation',generation)
+            set_setting('safka_cycle_total_pages',pages)
+        else:
+            generation=setting('safka_cycle_generation')
+            declared_pages=setting('safka_cycle_total_pages')
+            if not generation or declared_pages!=str(pages):
+                raise CatalogValidationError('Supplier catalog pages changed; restart from first page')
+        result=import_products(conn,records,complete=False,source_label='api-full-catalog')
+        placeholders=','.join('?' for _ in ids)
+        conn.execute('UPDATE products SET supplier_catalog_generation=?,supplier_listed=1 WHERE source=? AND supplier_product_id IN ('+placeholders+')',
+                     [generation,'safka',*ids])
+        complete=page==pages
+        archived=0
+        if complete:
+            # In one DB transaction, archive every Safka-only product missing
+            # from this verified full generation. Keep old order snapshots intact.
+            missing=conn.execute("""SELECT COUNT(*) FROM products WHERE source='safka'
+                 AND (supplier_catalog_generation IS NULL OR supplier_catalog_generation!=?)""",(generation,)).fetchone()[0]
+            conn.execute("""UPDATE products SET supplier_listed=0,active=0 WHERE source='safka'
+                 AND (supplier_catalog_generation IS NULL OR supplier_catalog_generation!=?)""",(generation,))
+            archived=missing
+            set_setting('safka_cycle_generation','')
+            set_setting('safka_cycle_total_pages','')
+        next_page=1 if complete else page+1
+        set_setting('safka_admin_next_page',next_page)
+        conn.execute('RELEASE SAVEPOINT safka_full_sync')
+        return {'imported':result['updated'],'next_page':next_page,
+                'total_pages':pages,'cycle_complete':complete,'archived':archived}
+    except Exception:
+        conn.execute('ROLLBACK TO SAVEPOINT safka_full_sync')
+        conn.execute('RELEASE SAVEPOINT safka_full_sync')
+        raise
 
 
 def sync_shipping_snapshot(conn, flattened):
