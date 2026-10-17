@@ -159,6 +159,22 @@ def normalize_product(raw):
         options = {k[:48]: list(dict.fromkeys(v))[:30] for k, v in options.items()}
     else:
         raise CatalogValidationError('Supplier variants require an explicit field mapping')
+    properties=raw.get('properties')
+    if isinstance(properties,list) and properties:
+        available=[p for p in properties if isinstance(p,dict)
+                   and p.get('is_available') is not False and p.get('is_active') is not False
+                   and p.get('value')!=0]
+        counts=[p.get('value') for p in available]
+        if qty is None and all(isinstance(n,int) and not isinstance(n,bool) and n>=0 for n in counts):
+            qty=sum(counts)
+        # Equal-priced supplier choices can use the existing choice field safely.
+        # Different-price properties must not be guessed from the parent price.
+        if not options and len(available)>1:
+            labels=[p.get('key') for p in available]
+            if (all(isinstance(label,str) and label.strip() for label in labels)
+                and len(set(labels))==len(labels)
+                and all(egp_to_piastres(p.get('sale_price',cost/100))==cost for p in available)):
+                options={'الاختيار':labels}
     return {
         'supplier_id': sid, 'supplier_code': supplier_code, 'title': title, 'description': desc, 'category': category,
         'supplier_cost': cost, 'price': sale_price_piastres(cost), 'stock': qty,
@@ -189,6 +205,7 @@ def expand_safka_shipping(records):
             entry = dict(item)
             entry.pop('cities')
             entry['city'] = name
+            entry['city_id'] = str(city.get('id', '')).strip()
             output.append(entry)
     return output
 
@@ -214,7 +231,11 @@ def normalize_shipping(raw):
     pricing_id = str(raw_id).strip() if raw_id is not None else None
     if pricing_id is not None and (not pricing_id or len(pricing_id) > 100):
         raise CatalogValidationError('Invalid Safka pricing document ID')
+    city_id = raw.get('city_id')
+    if city_id is not None and (isinstance(city_id, bool) or not isinstance(city_id, (str,int))):
+        raise CatalogValidationError('Invalid supplier city ID')
     return {'governorate': gov, 'city': city, 'area': area,
+            'city_id': str(city_id).strip() if city_id is not None else None,
             'supplier_fee': price, 'fee': customer_shipping_piastres(price),
             'pricing_document_id': pricing_id}
 
@@ -266,9 +287,13 @@ def init_safka_schema(conn):
     shipping_cols = {r['name'] for r in conn.execute('PRAGMA table_info(safka_shipping_rates)')}
     if 'pricing_document_id' not in shipping_cols:
         conn.execute('ALTER TABLE safka_shipping_rates ADD COLUMN pricing_document_id TEXT')
+    if 'city_id' not in shipping_cols:
+        conn.execute('ALTER TABLE safka_shipping_rates ADD COLUMN city_id TEXT')
     order_cols = {r['name'] for r in conn.execute('PRAGMA table_info(orders)')}
     if 'safka_shipping_pricing_document_id' not in order_cols:
         conn.execute('ALTER TABLE orders ADD COLUMN safka_shipping_pricing_document_id TEXT')
+    if 'safka_city_id' not in order_cols:
+        conn.execute('ALTER TABLE orders ADD COLUMN safka_city_id TEXT')
     outbox_cols = {r['name'] for r in conn.execute('PRAGMA table_info(safka_order_outbox)')}
     if 'submitted_commission_piastres' not in outbox_cols:
         conn.execute('ALTER TABLE safka_order_outbox ADD COLUMN submitted_commission_piastres INTEGER')
@@ -363,8 +388,8 @@ def import_shipping(conn, records, *, source_label='local-json'):
     try:
         conn.execute('DELETE FROM safka_shipping_rates')
         for r in rows:
-            conn.execute('INSERT INTO safka_shipping_rates(governorate,city,area,supplier_fee,fee,updated_at,pricing_document_id) VALUES(?,?,?,?,?,?,?)',
-                         (r['governorate'],r['city'],r['area'],r['supplier_fee'],r['fee'],now,r['pricing_document_id']))
+            conn.execute('INSERT INTO safka_shipping_rates(governorate,city,area,supplier_fee,fee,updated_at,pricing_document_id,city_id) VALUES(?,?,?,?,?,?,?,?)',
+                         (r['governorate'],r['city'],r['area'],r['supplier_fee'],r['fee'],now,r['pricing_document_id'],r['city_id']))
         conn.execute('INSERT INTO safka_sync_runs(kind,updated,hidden,created_at,source_label) VALUES(?,?,?,?,?)',
                      ('shipping',len(rows),0,now,source_label[:100]))
         conn.execute('RELEASE SAVEPOINT safka_rates')
@@ -442,6 +467,7 @@ def order_preview(conn, order_id):
             break
     return {
         'shipping_pricing_document_id': pricing_id,
+        'supplier_city_id': o['safka_city_id'],
         'merchant_reference':o['reference'], 'customer':o['customer'], 'phone':o['phone'],
         'governorate':o['governorate'],'address':o['address'],
         'customer_shipping_piastres':o['shipping_fee'],

@@ -50,7 +50,7 @@ class SafkaDispatchTests(unittest.TestCase):
    with self.assertRaises(OrderContractError):
     merchant_commission(PROVIDER_PREVIEW)
   with patch.dict(os.environ,FLAGS):
-   self.assertEqual(merchant_commission(PROVIDER_PREVIEW),50.0)
+   self.assertEqual(merchant_commission(PROVIDER_PREVIEW),60.0)
  def test_submission_flags_all_required(self):
   with patch.dict(os.environ,FLAGS):
    self.assertTrue(live_enabled())
@@ -78,7 +78,7 @@ class SafkaDispatchTests(unittest.TestCase):
   calls=[]
   def fake_send(canonical,provider_contract,key):
    calls.append(canonical)
-   self.assertEqual(canonical['requested_commission_egp'],50)
+   self.assertEqual(canonical['requested_commission_egp'],60)
    self.assertEqual(canonical['items'][0]['supplier_property_id'],PROPERTY)
    return OrderSubmissionOutcome('accepted','provider-test-id')
   with patch.dict(os.environ,FLAGS),\

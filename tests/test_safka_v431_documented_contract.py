@@ -15,12 +15,14 @@ class DocumentedCreateOrder(unittest.TestCase):
     def complete(self):
         p = dict(PREVIEW)
         p['shipping_pricing_document_id'] = '64878fe6dc16090c1858e698'
+        p['supplier_city_id'] = '336'
         return canonical_order(p, commission_egp=90.0, property_ids={0:'695d073bddc488a504bb2d50'})
 
     def test_exact_documented_fields(self):
         self.assertEqual(self.contract['path'], '/api/v1/public/orders')
         payload = build_payload(self.complete(), self.contract)
-        self.assertEqual(set(payload), {'client_name','client_phone1','client_address','shipping_governorate','commission','total','note','items'})
+        self.assertEqual(set(payload), {'client_name','client_phone1','client_address','shipping_governorate','city','commission','total','note','items'})
+        self.assertEqual(payload['city'],'336')
         self.assertEqual(payload['shipping_governorate'],'64878fe6dc16090c1858e698')
         self.assertEqual(payload['total'],190.0)
         self.assertEqual(payload['commission'],90.0)
@@ -42,6 +44,7 @@ class DocumentedCreateOrder(unittest.TestCase):
 
     def test_unknown_supplier_choice_blocks_send(self):
         payload=self.complete();payload['items'][0]['choices']={'size':'L'}
+        payload['items'][0]['supplier_property_id']=None
         with self.assertRaises(OrderContractError):build_payload(payload,self.contract)
 
     def test_success_data_id_parsed_and_exact_one_post(self):
