@@ -34,3 +34,5 @@
 .product-description{white-space:pre-line;overflow-wrap:anywhere;line-height:1.9}
 .thumb:focus-visible{outline:3px solid #477e67;outline-offset:3px}
 @media (prefers-reduced-motion:reduce){.gallery-arrow{transition:none}}
+
+.supplier-listing{background:#eef1f6;color:#45576c}
