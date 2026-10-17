@@ -14,13 +14,17 @@ from safka_live_orders import (canonical_order, load_contract, build_payload,
 from safka_cleanup import summary as safka_cleanup_summary, cleanup as safka_cleanup, CleanupNotReady, CONFIRM_TEXT
 ROOT=Path(__file__).parent
 load_dotenv(ROOT / '.env')
-if os.environ.get('VERCEL') and (not os.getenv('SECRET_KEY') or not os.getenv('DATABASE_URL') or len(os.getenv('SHOPY_STAGING_PASSWORD',''))<12):
- raise RuntimeError('SECRET_KEY, DATABASE_URL, and SHOPY_STAGING_PASSWORD (12+ chars) are required for Vercel staging')
+if os.environ.get('VERCEL') and (not os.getenv('SECRET_KEY') or not os.getenv('DATABASE_URL')):
+ raise RuntimeError('SECRET_KEY and DATABASE_URL are required for Vercel staging')
+# Optional preview password protection; public read-only previews do not require it.
+if os.getenv('SHOPY_STAGING_BASIC_AUTH_ENABLED') == '1' and len(os.getenv('SHOPY_STAGING_PASSWORD','')) < 12:
+ raise RuntimeError('SHOPY_STAGING_PASSWORD (12+ chars) required when staging basic auth is enabled')
 app=Flask(__name__); app.secret_key=os.environ.get('SECRET_KEY') or secrets.token_hex(32)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', MAX_CONTENT_LENGTH=50*1024*1024)
 app.config['SESSION_COOKIE_SECURE'] = bool(os.environ.get('VERCEL'))
 # HTTPS cookies in Vercel; local HTTP remains supported.
 STAGING_MODE = bool(os.environ.get('VERCEL') or os.environ.get('SHOPY_STAGING_MODE')=='1')
+STAGING_BASIC_AUTH_ENABLED = STAGING_MODE and os.getenv('SHOPY_STAGING_BASIC_AUTH_ENABLED','0') == '1'
 DB=os.environ.get('DATABASE_PATH',str(ROOT/'shopy.db'))
 UPLOADS=ROOT/'static'/'uploads'
 # File uploads stay local in V3; configure a persistent volume before public deployment.
@@ -84,7 +88,7 @@ def current_user():
 def staging_gate():
  if STAGING_MODE:
   private_password=os.environ.get('SHOPY_STAGING_PASSWORD','')
-  if private_password and request.path!='/health':
+  if STAGING_BASIC_AUTH_ENABLED and private_password and request.path!='/health':
    auth=request.authorization
    if not auth or not hmac.compare_digest(auth.password or '',private_password):
     return app.response_class('Staging access only',401,{'WWW-Authenticate':'Basic realm="Shopy Staging"'})
