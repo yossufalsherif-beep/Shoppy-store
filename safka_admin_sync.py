@@ -19,6 +19,9 @@ def api_page(key, path, kind, *, page=1, size=50, timeout=8):
     if (not path.startswith('/api/v1/public/') or '?' in path or '#' in path
             or '//' in path or '\\' in path):
         raise CatalogValidationError('Use an exact documented Safka public API path')
+    expected = '/api/v1/public/products' if kind=='products' else '/api/v1/public/price-list'
+    if path != expected:
+        raise CatalogValidationError('Unexpected Safka read endpoint')
     if not isinstance(page,int) or page < 1 or page > 10000 or size < 1 or size > 50:
         raise CatalogValidationError('Invalid page request')
     query = urllib.parse.urlencode({'page':page,'size':size})
