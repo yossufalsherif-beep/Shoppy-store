@@ -7,6 +7,6 @@
 <label>البريد الإلكتروني<input type="email" name="email" autocomplete="email" placeholder="you@example.com" required></label>
 <label>كلمة المرور<input type="password" name="password" autocomplete="{{'new-password' if mode=='register' else 'current-password'}}" {% if mode=='register' %}minlength="10"{% endif %} required></label>
 <button class="btn btn-dark btn-wide">{{'إنشاء حساب' if mode=='register' else 'تسجيل الدخول'}} ←</button></form>
-<div class="guest-browse"><p>تقدر تتصفح كل المنتجات من غير حساب. إتمام الطلب ومتابعته يحتاجان تسجيل الدخول.</p><a class="btn btn-outline btn-wide" href="/">تصفح المنتجات ←</a></div>
+<div class="guest-browse"><p>تقدر تتصفح كل المنتجات من غير حساب. إتمام الطلب ومتابعته يحتاجان تسجيل الدخول.</p><a class="btn btn-outline btn-wide" href="/">تصفح المتجر بدون تسجيل دخول ←</a></div>
 <p><a class="text-link" href="{{'/login' if mode=='register' else '/register'}}">{{'عندك حساب؟ سجل دخول' if mode=='register' else 'معندكش حساب؟ أنشئ حساب'}}</a></p></div>
 {% endblock %}
