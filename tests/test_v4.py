@@ -80,6 +80,7 @@ class V4Tests(unittest.TestCase):
         self.assertIn('مساعد',html)
     def test_utm_attribution_saved_not_publicly_leaked(self):
         self.client.get('/products/sample-one?utm_source=facebook&utm_campaign=fall_launch')
+        self.client.post('/register',data={'csrf':self.token(),'email':'buyer-utm@shopy.test','password':'password-with-ten-chars'})
         self.client.post('/cart/add/1',data={'csrf':self.token()})
         self.client.post('/checkout',data={'csrf':self.token(),'name':'Test Buyer','phone':'01012345678','governorate':'القاهرة','city':'مدينة نصر','area':'حي','address':'عمارة خمسة وسبعين شارع التحرير'})
         with store.db() as c:
