@@ -9,6 +9,7 @@ import sqlite3
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import urlparse
+from catalog_quality import clean_description, suggested_category, availability_from_source, extract_rating
 
 PROVIDER = 'safka'
 TEN_EGP_PIASTRES = 1000
@@ -144,9 +145,9 @@ def normalize_product(raw):
     if not category:
         # Safka public Products List currently omits categories. Explicitly mark
         # as unclassified; do not invent a category or publish without stock.
-        category = 'غير مصنف (صفقة)'
+        category = suggested_category(title)
     qty = _stock(raw)
-    desc = _text(_first(raw, 'description', 'product_description', 'description_ar'))
+    desc = clean_description(_text(_first(raw, 'description', 'product_description', 'description_ar'), 20000))
     images = _urls(_first(raw, 'images', 'product_images', 'image_urls', 'image', 'image_url'))
     videos = _urls(_first(raw, 'videos', 'video_urls', 'video_url'))
     options = _first(raw, 'options', 'attributes', 'variants')
@@ -162,6 +163,8 @@ def normalize_product(raw):
         'supplier_id': sid, 'supplier_code': supplier_code, 'title': title, 'description': desc, 'category': category,
         'supplier_cost': cost, 'price': sale_price_piastres(cost), 'stock': qty,
         'images': images, 'videos': videos, 'options': options,
+        'supplier_available': availability_from_source(raw,qty),
+        'supplier_rating': extract_rating(raw)[0], 'supplier_review_count': extract_rating(raw)[1],
     }
 
 
@@ -227,8 +230,19 @@ def init_safka_schema(conn):
     ):
         if key not in cols:
             conn.execute(f'ALTER TABLE products ADD COLUMN {key} {definition}')
+    for key,definition in (
+        ('supplier_available','INTEGER'),('supplier_rating','REAL'),
+        ('supplier_review_count','INTEGER')
+    ):
+        if key not in cols:
+            conn.execute(f'ALTER TABLE products ADD COLUMN {key} {definition}')
     conn.executescript('''
     CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_product ON products(source,supplier_product_id);
+    CREATE TABLE IF NOT EXISTS product_overrides (
+      product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, description TEXT NOT NULL, category TEXT NOT NULL,
+      price INTEGER NOT NULL, options_json TEXT NOT NULL DEFAULT '{}'
+    );
     CREATE TABLE IF NOT EXISTS safka_shipping_rates (
       id INTEGER PRIMARY KEY,
       governorate TEXT NOT NULL, city TEXT NOT NULL DEFAULT '', area TEXT NOT NULL DEFAULT '',
@@ -287,20 +301,30 @@ def import_products(conn, records, *, complete=False, source_label='local-json')
             if old:
                 pid = old['id']
                 conn.execute('''UPDATE products SET title=?,description=?,category=?,price=?,supplier_cost=?,
-                     supplier_stock=?,supplier_product_code=?,supplier_last_sync=?,active=?,options_json=?,image=? WHERE id=?''',
+                     supplier_stock=?,supplier_product_code=?,supplier_last_sync=?,active=?,options_json=?,image=?,
+                     supplier_available=?,supplier_rating=?,supplier_review_count=? WHERE id=?''',
                      (p['title'],p['description'],p['category'][:200],p['price'],p['supplier_cost'],p['stock'],p['supplier_code'],now,
-                      active,json.dumps(p['options'],ensure_ascii=False),p['images'][0] if p['images'] else '',pid))
+                      active,json.dumps(p['options'],ensure_ascii=False),p['images'][0] if p['images'] else '',
+                      None if p['supplier_available'] is None else int(p['supplier_available']),
+                      p['supplier_rating'],p['supplier_review_count'],pid))
             else:
                 # Provider ID is opaque; a generated local slug is stable on re-sync.
                 import hashlib
                 slug = 'safka-' + hashlib.sha256(p['supplier_id'].encode()).hexdigest()[:20]
                 cur = conn.execute('''INSERT INTO products(title,slug,description,price,image,active,options_json,category,
-                                    supplier_cost,source,supplier_product_id,supplier_product_code,supplier_stock,supplier_last_sync)
-                                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                                    supplier_cost,source,supplier_product_id,supplier_product_code,supplier_stock,supplier_last_sync,supplier_available,supplier_rating,supplier_review_count)
+                                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                                    (p['title'],slug,p['description'],p['price'],p['images'][0] if p['images'] else '',active,
                                     json.dumps(p['options'],ensure_ascii=False),p['category'][:200],p['supplier_cost'],
-                                    'safka',p['supplier_id'],p['supplier_code'],p['stock'],now))
+                                    'safka',p['supplier_id'],p['supplier_code'],p['stock'],now,
+                                    None if p['supplier_available'] is None else int(p['supplier_available']),
+                                    p['supplier_rating'],p['supplier_review_count']))
                 pid = cur.lastrowid
+            # Merchant edits are kept over supplier changes during every re-sync.
+            custom=conn.execute('SELECT * FROM product_overrides WHERE product_id=?',(pid,)).fetchone()
+            if custom:
+                conn.execute('UPDATE products SET title=?,description=?,category=?,price=?,options_json=? WHERE id=?',
+                             (custom['title'],custom['description'],custom['category'],custom['price'],custom['options_json'],pid))
             # Only replace remote provider media. Never remove customer-uploaded local images.
             conn.execute("DELETE FROM product_media WHERE product_id=? AND path LIKE 'https://%'", (pid,))
             for index, (kind, url) in enumerate([('image',u) for u in p['images']] + [('video',u) for u in p['videos']]):
