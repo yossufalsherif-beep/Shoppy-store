@@ -772,6 +772,54 @@ def assistant():
  return render_template('assistant.html',matches=matches,need=query,budget=raw_budget,category=category,categories=categories,warning=warning,asked=request.method=='POST',engine=engine)
 
 
+@app.post('/admin/safka/sync')
+@admin_only
+def sync_safka_owner():
+ # Explicit owner action only. Import to local DB, NEVER send customer orders.
+ if os.getenv('SHOPY_SAFKA_READ_ENABLED') != '1':
+  flash('مزامنة صفقة: قراءة API غير مفعلة.')
+  return redirect('/admin')
+ key=os.getenv('SHOPY_SAFKA_API_KEY','')
+ if len(key.strip()) < 12:
+  flash('مزامنة صفقة: مفتاح API غير مهيأ.')
+  return redirect('/admin')
+ kind=request.form.get('kind','')
+ if kind not in ('products','shipping'):
+  abort(400,'Unknown Safka sync kind')
+ from safka_admin_sync import (api_page,checked_products,checked_shipping,
+                               sync_product_page,sync_shipping_snapshot)
+ from safka_bridge import CatalogValidationError
+ from urllib.error import HTTPError,URLError
+ path=os.getenv('SHOPY_SAFKA_PRODUCTS_PATH' if kind=='products' else 'SHOPY_SAFKA_SHIPPING_PATH','').strip()
+ if not path:
+  flash('مزامنة صفقة: المسار الرسمي غير مضبوط.')
+  return redirect('/admin')
+ try:
+  if kind=='products':
+   with db() as conn:
+    saved=conn.execute("SELECT value FROM store_settings WHERE key='safka_admin_next_page'").fetchone()
+    page=int(saved['value']) if saved else 1
+   payload,records=api_page(key,path,'products',page=page,size=50,timeout=8)
+   pages,count=checked_products(payload,records,page)
+   with db() as conn:
+    result=sync_product_page(conn,records,page,pages)
+   flash('صفقة: تم حفظ '+str(count)+' منتج كمسودات غير منشورة. صفحة '+str(page)+' من '+str(pages)+
+         ('؛ انتهت دورة المنتجات.' if result['cycle_complete'] else '؛ اضغط استيراد الدفعة التالية لإكمال الباقي.'))
+  else:
+   payload,records=api_page(key,path,'shipping',page=1,size=50,timeout=8)
+   rates=checked_shipping(payload,records)
+   with db() as conn:
+    result=sync_shipping_snapshot(conn,rates)
+   flash('صفقة: تم حفظ '+str(result['updated'])+
+         ' تعريفة شحن للمدن المدعومة (سعر صفقة + 10 جنيه). لم تتغير بيانات الطلبات أو الشحن اليدوي.')
+ except HTTPError as exc:
+  flash('صفقة: فشل الاتصال برمز HTTP '+str(exc.code)+'. لم تُحفظ الدفعة.')
+ except (URLError,OSError,ValueError,TypeError,KeyError,CatalogValidationError) as exc:
+  # Avoid logging raw API errors, credentials, response bodies or customer data.
+  flash('صفقة: توقفت المزامنة بسبب بيانات غير مكتملة أو اتصال ('+type(exc).__name__+'). راجع النتيجة قبل المحاولة مجددًا.')
+ return redirect('/admin')
+
+
 @app.post('/admin/safka/preview-import')
 @admin_only
 def preview_safka_import():
