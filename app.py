@@ -418,6 +418,34 @@ def order_success(ref):
   supplier=c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(order['id'],)).fetchone()
  return render_template('success.html',ref=ref,order=order,supplier=supplier)
 
+def complete_customer_auth(uid,role):
+ """Retain a guest shopper's cart across authentication; rotate session safely.
+ Avoid losing cart/order flow when customer must sign in at checkout.
+ """
+ previous_cart=session.get('cart',{})
+ continue_checkout=bool(session.get('checkout_after_login'))
+ pending_fav=session.get('pending_favorite')
+ utm=(session.get('utm_source',''),session.get('utm_campaign',''))
+ session.clear()
+ session['uid']=uid
+ if isinstance(previous_cart,dict):session['cart']=previous_cart
+ if utm[0]:session['utm_source']=utm[0]
+ if utm[1]:session['utm_campaign']=utm[1]
+ if role=='admin':return redirect('/admin')
+ if isinstance(pending_fav,int) and pending_fav>0:
+  with db() as conn:
+   visible=conn.execute("""SELECT 1 FROM products WHERE id=?
+       AND (active=1 OR (source='safka' AND supplier_listed=1))""",(pending_fav,)).fetchone()
+   if visible:
+    conn.execute("""INSERT INTO favorites(user_id,product_id) VALUES(?,?)
+       ON CONFLICT(user_id,product_id) DO NOTHING""",(uid,pending_fav))
+ if continue_checkout and previous_cart:
+  return redirect('/checkout')
+ if pending_fav:
+  return redirect('/favorites')
+ return redirect('/account')
+
+
 @app.route('/register',methods=['GET','POST'])
 def register():
  if request.method=='POST':
@@ -427,11 +455,8 @@ def register():
    try:
     with db() as c:
      cur=c.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(email,generate_password_hash(pw),'customer'))
-     campaign=(session.get('utm_source',''),session.get('utm_campaign',''))
-     session.clear();session['uid']=cur.lastrowid
-     if campaign[0]:session['utm_source']=campaign[0]
-     if campaign[1]:session['utm_campaign']=campaign[1]
-    return redirect('/account')
+     new_user_id=cur.lastrowid
+    return complete_customer_auth(new_user_id,'customer')
    except Exception as exc:
     if isinstance(exc, sqlite3.IntegrityError) or (exc.__class__.__name__ == 'UniqueViolation' and exc.__class__.__module__.startswith('psycopg')):flash('البريد مستخدم بالفعل')
     else:raise
@@ -467,11 +492,7 @@ def login():
  if request.method=='POST':
   with db() as c:u=c.execute('SELECT * FROM users WHERE email=?',(request.form.get('email','').strip().lower(),)).fetchone()
   if u and check_password_hash(u['password'],request.form.get('password','')):
-   campaign=(session.get('utm_source',''),session.get('utm_campaign',''))
-   session.clear();session['uid']=u['id']
-   if campaign[0]:session['utm_source']=campaign[0]
-   if campaign[1]:session['utm_campaign']=campaign[1]
-   return redirect('/admin' if u['role']=='admin' else '/account')
+   return complete_customer_auth(u['id'],u['role'])
   flash('بيانات الدخول غير صحيحة')
  return render_template('auth.html',mode='login')
 @app.post('/logout')
@@ -794,7 +815,9 @@ def update_contact():
 def toggle_favorite(pid):
  user=current_user()
  if not user:
-  flash('سجل دخولك علشان تحفظ المنتجات في المفضلة وتلاقيها على حسابك.')
+  # Heart selection survives sign-up/login on this browser.
+  session['pending_favorite']=pid
+  flash('سجل دخولك علشان نحفظ المنتج في مفضلتك تلقائيًا.')
   return redirect('/login')
  back=safe_back_url()
  with db() as conn:
