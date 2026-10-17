@@ -31,9 +31,11 @@ def preview_records(path, key, kind, timeout=8):
     if isinstance(payload,dict) and payload.get('success') is False:
         raise ValueError('Safka reported an API error')
     records = _extract_list(payload, kind)
-    if not isinstance(records,list) or len(records)>2:
-        raise ValueError('Unexpected response size')
-    return records
+    if not isinstance(records,list):
+        raise ValueError('Unexpected response type')
+    # Safka price-list can ignore the 'size' parameter and return all governors.
+    # Only inspect the first two records; never interpret a large response as bad auth.
+    return records[:2]
 
 
 def safe_keys(path, key, timeout=20):
