@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+{% block title %}تجهيز أول أوردر اختبار — Shopy Store{% endblock %}
+{% block content %}
+<section style="max-width:900px;margin:36px auto 70px" dir="rtl">
+ <a class="text-link" href="/admin#orders">← لوحة الإدارة</a>
+ <span class="eyebrow">اختبار رسمي · للأدمن فقط</span>
+ <h1>تجهيز أول أوردر لصفقة</h1>
+ <p>هنحفظ مسودة أوردر واحدة في Shopy Store، وبعدها نعرض تفاصيلها وسعرها للمراجعة. <strong>إنشاء المسودة لا يرسل أي طلب لصفقة.</strong> الإرسال خطوة مستقلة بتأكيدك.</p>
+ <div class="panel" style="margin-bottom:22px">
+  <h2>1. تجهيز أسعار الشحن الرسمية</h2>
+  {% if n_rates %}
+   <p style="color:#246348;font-weight:700">✓ {{n_rates}} تعريفة شحن مستوردة، وتُستخدم الأسعار المؤكدة فقط.</p>
+  {% else %}
+   <p style="color:#a33333;font-weight:700">لم نستورِ أسعار الشحن من صفقة حتى الآن؛ لا يمكن إعداد أوردر قبل تحديد سعر الشحن ومعرّف التسعيرة.</p>
+  {% endif %}
+  <form method="post" action="/admin/safka/first-order">
+   <input type="hidden" name="csrf" value="{{csrf}}">
+   <input type="hidden" name="action" value="shipping">
+   <button class="btn btn-dark" type="submit">جلب أسعار الشحن الرسمية وفحص الربط</button>
+  </form>
+  {% if report %}
+  <div class="panel" style="margin-top:12px;padding:14px" role="status">
+   <p><strong>نتيجة فحص استجابة صفقة:</strong> {{report.validation}}</p>
+   <p>عدد سجلات المحافظات: {{report.records}} · عدد مدن العينة: {{report.first_record_city_count}}.</p>
+   <p>العدد المعلن للمحافظات: {{report.declared_active_governorates or 'غير مذكور'}} · العدد المعلن للعناصر: {{report.declared_items_count or 'غير مذكور'}}.</p>
+   <p class="fine-print">حقول الاستجابة الرئيسية: {{report.top_level_keys|join(', ')}}</p>
+   <p class="fine-print">حقول المحافظة: {{report.first_record_keys|join(', ')}}</p>
+   <p class="fine-print">حقول المدينة: {{report.first_city_keys|join(', ')}}</p>
+   <p class="fine-print">لا يعرض هذا الفحص مفتاح API أو أسماء عملاء أو عناوين.</p>
+  </div>
+  {% endif %}
+ </div>
+ <div class="panel">
+  <h2>2. حفظ مسودة أوردر اختبار واحدة</h2>
+  {% if not n_rates %}<p class="fine-print">استنى نجاح جلب أسعار الشحن الأول. كل خانات الأوردر مقفولة حتى تكون التسعيرة رسمية.</p>{% endif %}
+  <form class="admin-form" method="post" action="/admin/safka/first-order" id="firstSafkaTest">
+   <input type="hidden" name="csrf" value="{{csrf}}">
+   <input type="hidden" name="action" value="prepare">
+   <label>المنتج (قطعة واحدة فقط)
+    <select id="testProduct" name="product_id" required {% if not n_rates %}disabled{% endif %}>
+      <option value="">اختر منتج صفقة بسيط</option>
+      {% for p in products %}
+      <option value="{{p.id}}">{{p.title}} — {{money(p.price)}} ج.م</option>
+      {% endfor %}
+    </select>
+   </label>
+   <div class="field-grid">
+    <label>الاسم الكامل<input name="name" autocomplete="name" minlength="2" maxlength="120" required {% if not n_rates %}disabled{% endif %}></label>
+    <label>رقم الموبايل المصري<input name="phone" inputmode="tel" pattern="01[0125][0-9]{8}" placeholder="01xxxxxxxxx" required {% if not n_rates %}disabled{% endif %}></label>
+    <label>المحافظة
+     <select id="testGov" name="governorate" required {% if not n_rates %}disabled{% endif %}>
+      <option value="">اختر المحافظة</option>
+      {% for g in governorates %}<option value="{{g.governorate}}">{{g.governorate}}</option>{% endfor %}
+     </select>
+    </label>
+    <label>المدينة
+     <select id="testCity" name="city" required disabled><option value="">اختر المحافظة أولًا</option></select>
+    </label>
+    <label>المنطقة<input id="testArea" name="area" minlength="2" maxlength="80" required {% if not n_rates %}disabled{% endif %}></label>
+    <label class="full">عنوان الاستلام بالتفصيل
+     <textarea name="address" minlength="8" maxlength="500" rows="3" required {% if not n_rates %}disabled{% endif %}></textarea>
+    </label>
+   </div>
+   <p class="fine-print">بيانات العميل هتتحفظ داخل المتجر، ومش محتاج تبعتها هنا في الشات. استخدم بيانات شخص موافق على استلام طلب فعلي.</p>
+   <div class="summary-line total" aria-live="polite"><span>الإجمالي المتوقع عند الاستلام</span><strong id="testTotal">اختار المنتج والمنطقة</strong></div>
+   <p id="testQuoteState" class="fine-print" role="status">الإجمالي بيتحسب على السيرفر حسب سعر صفقة مع زيادة الشحن المعلنة في متجرك.</p>
+   <label style="display:flex;align-items:flex-start;gap:8px"><input type="checkbox" name="draft_confirm" value="1" required {% if not n_rates %}disabled{% endif %} style="width:18px;margin-top:6px"> أؤكد إن البيانات صحيحة وأريد حفظ مسودة طلب اختبار، بدون إرسالها للمورد حتى أراجعها.</label>
+   <button id="testDraftBtn" class="btn btn-dark" type="submit" disabled>حفظ المسودة ومراجعة التفاصيل ←</button>
+  </form>
+ </div>
+</section>
+<script>
+(()=>{
+ const gov=document.getElementById('testGov'),city=document.getElementById('testCity');
+ const area=document.getElementById('testArea'),product=document.getElementById('testProduct');
+ const total=document.getElementById('testTotal'),status=document.getElementById('testQuoteState');
+ const submit=document.getElementById('testDraftBtn');
+ let seq=0;
+ const money=v=>(v/100).toLocaleString('ar-EG',{minimumFractionDigits:2,maximumFractionDigits:2})+' ج.م';
+ async function refreshCities(){
+  const current=gov.value;
+  city.replaceChildren(new Option(current?'جارٍ تحميل المدن':'اختر المحافظة أولًا',''));city.disabled=true;
+  total.textContent='—';submit.disabled=true;
+  if(!current)return;
+  try{
+   const response=await fetch('/api/shipping-cities?'+new URLSearchParams({governorate:current}));
+   const data=await response.json();
+   if(current!==gov.value)return;
+   city.replaceChildren(new Option('اختر المدينة',''));
+   for(const name of data.cities||[])city.add(new Option(name,name));
+   city.disabled=!(data.cities||[]).length;
+   refreshQuote();
+  }catch{status.textContent='تعذر جلب المدن، حاول مرة أخرى';}
+ }
+ async function refreshQuote(){
+  const i=++seq;submit.disabled=true;total.textContent='—';
+  if(!product.value||!gov.value||!city.value||!area.value.trim())return;
+  status.textContent='جارٍ مراجعة السعر والشحن...';
+  try{
+   const query=new URLSearchParams({product_id:product.value,governorate:gov.value,city:city.value,area:area.value.trim()});
+   const response=await fetch('/admin/safka/first-order/quote?'+query.toString());
+   const out=await response.json();if(i!==seq)return;
+   if(!response.ok||!out.ok){status.textContent=out.message||'الشحن غير متاح للعنوان';return;}
+   total.textContent=money(out.total_piastres);
+   status.textContent='سعر المنتج '+money(out.product_piastres)+' + الشحن '+money(out.shipping_piastres)+' — سيتم تأكيد المبلغ قبل الإرسال للمورد.';
+   submit.disabled=false;
+  }catch{if(i===seq)status.textContent='تعذر التأكد من الأسعار، حاول مرة أخرى';}
+ }
+ gov.addEventListener('change',refreshCities);
+ for(const field of [product,city])field.addEventListener('change',refreshQuote);
+ let timer;area.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(refreshQuote,280)});
+})();
+</script>
+{% endblock %}
