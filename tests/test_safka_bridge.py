@@ -13,7 +13,7 @@ from safka_bridge import (
     egp_to_piastres,sale_price_piastres,customer_shipping_piastres,
     normalize_product,normalize_shipping,init_safka_schema,import_products,
     import_shipping,quote_safka_shipping,queue_safka_order,order_preview,
-    supplier_stock_ready,CatalogValidationError)
+    supplier_stock_ready,expand_safka_shipping,CatalogValidationError)
 from safka_import import _extract_list
 from safka_probe import preview_records
 
@@ -102,6 +102,20 @@ class PricingTests(unittest.TestCase):
             import_products(conn,[sample])
             imported=conn.execute("SELECT active FROM products WHERE source='safka'").fetchone()
             self.assertEqual(imported['active'],0)
+
+    def test_safka_governorate_cities_expand_with_original_price_id(self):
+        row = {'_id':'pr1','governorateNameAr':'القاهرة','price':95,
+               'cities':[{'id':'1','city_name_ar':'مدينة نصر'},
+                         {'id':'2','city_name_ar':'المعادي'}]}
+        rates = [normalize_shipping(x) for x in expand_safka_shipping([row])]
+        self.assertEqual(len(rates),2)
+        self.assertEqual([x['city'] for x in rates],['مدينة نصر','المعادي'])
+        self.assertEqual([x['fee'] for x in rates],[10500,10500])
+        self.assertEqual([x['pricing_document_id'] for x in rates],['pr1','pr1'])
+
+    def test_safka_city_missing_name_rejected(self):
+        with self.assertRaises(CatalogValidationError):
+            expand_safka_shipping([{'_id':'pr2','price':85,'cities':[{'id':'1'}]}])
 
     def test_safka_price_list_governorate_mapping(self):
         sample={'_id':'price-1','governorateNameAr':'الجيزة','price':45,'cities':[]}

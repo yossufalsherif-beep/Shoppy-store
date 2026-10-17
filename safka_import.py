@@ -20,7 +20,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 _SAFE_OPENER = urllib.request.build_opener(_NoRedirect())
 from pathlib import Path
 from dotenv import load_dotenv
-from safka_bridge import init_safka_schema, import_products, import_shipping, normalize_product, normalize_shipping, CatalogValidationError
+from safka_bridge import init_safka_schema, import_products, import_shipping, normalize_product, normalize_shipping, expand_safka_shipping, CatalogValidationError
 
 ROOT=Path(__file__).resolve().parent
 load_dotenv(ROOT/'.env')
@@ -132,7 +132,7 @@ def main(argv=None):
              'Shopy_EGP':x['price']/100,'stock':x['stock'],'category':x['category']} for x in validated[:3]
         ],ensure_ascii=False))
     if shipping is not None:
-        validated_rates=[normalize_shipping(r) for r in shipping]
+        validated_rates=[normalize_shipping(r) for r in expand_safka_shipping(shipping)]
         print('Shipping rates validated:',len(validated_rates),'entries, +10 EGP to each base fee.')
     if args.apply and not args.allow_demo_data and (
         any('EXAMPLE_' in str(p.name).upper() for p in (args.products_json,args.shipping_json) if p)):
@@ -153,7 +153,7 @@ def main(argv=None):
         if products is not None:
             print('Catalog import:', import_products(conn,products,complete=args.complete_catalog,source_label=label))
         if shipping is not None:
-            print('Shipping import:', import_shipping(conn,shipping,source_label=label))
+            print('Shipping import:', import_shipping(conn,expand_safka_shipping(shipping),source_label=label))
     print('Saved safely. Existing manual products, orders and admin are untouched.')
     return 0
 

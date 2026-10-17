@@ -165,14 +165,39 @@ def normalize_product(raw):
     }
 
 
+def expand_safka_shipping(records):
+    """Turn each documented price-list governorate into its supported city rows."""
+    output = []
+    for item in records:
+        if not isinstance(item, dict):
+            raise CatalogValidationError('Invalid price-list record')
+        cities = item.get('cities')
+        if cities is None:
+            output.append(item)
+            continue
+        if not isinstance(cities, list) or not cities or len(cities) > 1000:
+            raise CatalogValidationError('Missing or invalid supported cities')
+        for city in cities:
+            if not isinstance(city, dict):
+                raise CatalogValidationError('Invalid supported city')
+            name = _text(_first(city, 'city_name_ar', 'cityNameAr'), 80)
+            if not name:
+                raise CatalogValidationError('Missing Arabic city name')
+            entry = dict(item)
+            entry.pop('cities')
+            entry['city'] = name
+            output.append(entry)
+    return output
+
+
 def normalize_shipping(raw):
     if not isinstance(raw, dict):
         raise CatalogValidationError('Shipping entry is not an object')
     gov = _text(_first(raw, 'governorateNameAr', 'governorate', 'governorate_name', 'province'), 80)
     # Safka price-list may contain nested cities. Do not collapse city-specific
     # pricing into a governorate-wide fee before the nested schema is verified.
-    if isinstance(raw.get('cities'), list) and raw['cities']:
-        raise CatalogValidationError('Safka nested cities require verified shipping-rate mapping')
+    if 'cities' in raw:
+        raise CatalogValidationError('Expand nested Safka city list first')
     city = _text(_first(raw, 'city', 'city_name', 'markaz'), 80)
     area = _text(_first(raw, 'area', 'area_name', 'district'), 80)
     price = egp_to_piastres(_first(raw, 'shipping_fee', 'fee', 'price', 'shipping_price'))
