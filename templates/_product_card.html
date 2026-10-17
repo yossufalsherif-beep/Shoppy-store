@@ -1,4 +1,22 @@
 <a class="product-card" href="/products/{{item.slug}}">
- <div class="product-cover">{% if item.image %}<img src="{{item.image}}" alt="{{item.title}}" loading="lazy">{% else %}<div class="product-fallback"><span class="fallback-logo">S</span><span>Shopy Store</span></div>{% endif %}<span class="product-card-arrow" aria-hidden="true">↗</span></div>
- <div class="product-card-info"><span class="eyebrow">Shopy Store</span>{% if item.source=='safka' and (not item.active or item.supplier_stock is none or item.supplier_stock <= 0) %}<span class="supplier-note">للعرض فقط — التوفر غير مؤكد</span>{% endif %}<h3>{{item.title}}</h3><div class="product-card-bottom"><strong>{{money(item.price)}} <small>ج.م</small></strong><span class="round-plus" aria-hidden="true">+</span></div></div>
+ <div class="product-cover">
+  {% if item.image %}<img src="{{item.image}}" alt="{{item.title}}" loading="lazy">
+  {% else %}<div class="product-fallback"><span class="fallback-logo">S</span><span>Shopy Store</span></div>{% endif %}
+  {% if item.source!='safka' or (item.supplier_stock is not none and item.supplier_stock>0 and item.active) %}
+  <span class="product-stock-badge in-stock">متوفر</span>
+  {% elif item.supplier_available is not none and not item.supplier_available %}
+  <span class="product-stock-badge out-stock">غير متوفر</span>
+  {% else %}
+  <span class="product-stock-badge checking-stock">جاري تأكيد التوفر</span>
+  {% endif %}
+  <span class="product-card-arrow" aria-hidden="true">↗</span>
+ </div>
+ <div class="product-card-info">
+  <span class="eyebrow">Shopy Store</span>
+  <h3>{{item.title}}</h3>
+  {% if item.supplier_rating is not none and item.supplier_review_count and item.supplier_review_count>0 %}
+  <small class="product-rating">★ {{'%.1f'|format(item.supplier_rating)}} <span>({{item.supplier_review_count}})</span></small>
+  {% endif %}
+  <div class="product-card-bottom"><strong>{{money(item.price)}} <small>ج.م</small></strong><span class="round-plus" aria-hidden="true">+</span></div>
+ </div>
 </a>
