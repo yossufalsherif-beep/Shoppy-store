@@ -232,7 +232,8 @@ def init_safka_schema(conn):
             conn.execute(f'ALTER TABLE products ADD COLUMN {key} {definition}')
     for key,definition in (
         ('supplier_available','INTEGER'),('supplier_rating','REAL'),
-        ('supplier_review_count','INTEGER')
+        ('supplier_review_count','INTEGER'),('supplier_listed','INTEGER NOT NULL DEFAULT 1'),
+        ('supplier_catalog_generation','TEXT')
     ):
         if key not in cols:
             conn.execute(f'ALTER TABLE products ADD COLUMN {key} {definition}')
@@ -297,7 +298,8 @@ def import_products(conn, records, *, complete=False, source_label='local-json')
     try:
         for p in rows:
             old = conn.execute("SELECT id,image FROM products WHERE source='safka' AND supplier_product_id=?", (p['supplier_id'],)).fetchone()
-            active = 1 if p['stock'] is not None and p['stock'] > 0 and p['supplier_available'] is not False else 0
+            # Safka list membership is the marketer's availability signal (not a guaranteed stock count).
+            active = 1 if p['supplier_available'] is not False and (p['stock'] is None or p['stock']>0) else 0
             if old:
                 pid = old['id']
                 conn.execute('''UPDATE products SET title=?,description=?,category=?,price=?,supplier_cost=?,
@@ -307,6 +309,7 @@ def import_products(conn, records, *, complete=False, source_label='local-json')
                       active,json.dumps(p['options'],ensure_ascii=False),p['images'][0] if p['images'] else '',
                       None if p['supplier_available'] is None else int(p['supplier_available']),
                       p['supplier_rating'],p['supplier_review_count'],pid))
+                conn.execute("UPDATE products SET supplier_listed=1 WHERE id=?",(pid,))
             else:
                 # Provider ID is opaque; a generated local slug is stable on re-sync.
                 import hashlib
@@ -455,10 +458,15 @@ def supplier_stock_ready(p, qty=1):
     """Don't advertise stale or unverified Safka inventory as orderable."""
     if p['source']!='safka':
         return True
+    if p['active'] != 1:
+        return False
+    if 'supplier_listed' in p.keys() and p['supplier_listed'] == 0:
+        return False
     if 'supplier_available' in p.keys() and p['supplier_available'] == 0:
         return False
-    count = p['supplier_stock']
-    if count is None or count < qty:
+    count=p['supplier_stock']
+    # A supplier listing can be ordered without publishing an invented quantity.
+    if count is not None and count < qty:
         return False
     stamp = p['supplier_last_sync']
     if not stamp:
@@ -469,7 +477,7 @@ def supplier_stock_ready(p, qty=1):
             return False
         age=datetime.now(timezone.utc)-last
         import os
-        minutes=int(os.getenv('SHOPY_SAFKA_MAX_STOCK_AGE_MINUTES','60'))
-        return timedelta(0)<=age<=timedelta(minutes=max(5,min(minutes,1440)))
+        minutes=int(os.getenv('SHOPY_SAFKA_MAX_STOCK_AGE_MINUTES','5760'))
+        return timedelta(0)<=age<=timedelta(minutes=max(5,min(minutes,10080)))
     except (ValueError,TypeError):
         return False
