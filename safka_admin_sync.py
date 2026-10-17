@@ -105,6 +105,12 @@ def sync_product_page(conn, records, page, pages):
         def set_setting(name,value):
             conn.execute("""INSERT INTO store_settings(key,value) VALUES(?,?)
                             ON CONFLICT(key) DO UPDATE SET value=excluded.value""",(name,str(value)))
+        # Lock the progress row so competing browser sync requests cannot
+        # interleave two generations or archive unverified catalog entries.
+        conn.execute("UPDATE store_settings SET value=value WHERE key='safka_admin_next_page'")
+        stored_page=setting('safka_admin_next_page')
+        if int(stored_page or '1')!=page:
+            raise CatalogValidationError('Supplier sync page changed; restart or continue from the saved page')
         if page==1:
             # Start a new generation only at page one; retries are idempotent.
             generation=uuid.uuid4().hex
