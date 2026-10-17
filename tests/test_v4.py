@@ -30,17 +30,19 @@ class V4Tests(unittest.TestCase):
     def admin(self):
         self.client.post('/login',data={'csrf':self.token(),'email':'owner@shopy.test','password':'long-strong-password'})
     def test_public_browsing_and_assistant(self):
-        for path in ('/','/products/sample-one','/assistant','/compare'):
+        for path in ('/','/products/sample-one','/assistant'):
             self.assertEqual(self.client.get(path).status_code,200,path)
         r=self.client.post('/assistant',data={'csrf':self.token(),'need':'منتج تجريبي','budget':'200'})
         self.assertEqual(r.status_code,200)
         self.assertIn('منتج تجريبي أول'.encode(),r.data)
-    def test_compare_add_and_remove(self):
-        r=self.client.post('/compare/add/1',data={'csrf':self.token()},follow_redirects=True)
+    def test_favorites_persist_for_authenticated_account(self):
+        self.admin()
+        r=self.client.post('/favorites/toggle/1',data={'csrf':self.token(),'return_to':'/favorites'},follow_redirects=True)
         self.assertEqual(r.status_code,200)
-        self.assertIn('منتج تجريبي أول'.encode(),self.client.get('/compare').data)
-        self.client.post('/compare/remove/1',data={'csrf':self.token()})
-        self.assertNotIn('منتج تجريبي أول'.encode(),self.client.get('/compare').data)
+        self.assertIn('منتج تجريبي أول'.encode(),self.client.get('/favorites').data)
+        self.client.post('/favorites/toggle/1',data={'csrf':self.token(),'return_to':'/favorites'})
+        self.assertNotIn('منتج تجريبي أول'.encode(),self.client.get('/favorites').data)
+        self.assertEqual(self.client.get('/compare').status_code,302)
     def test_region_shipping_quote_and_checkout_server_price(self):
         self.admin()
         self.client.post('/admin/shipping-zone',data={'csrf':self.token(),'governorate':'القاهرة','city':'مدينة نصر','area':'الحي السابع','fee':'82','supplier_cost':'50'})

@@ -67,6 +67,26 @@ CREATE TABLE IF NOT EXISTS shipping_zones (id INTEGER PRIMARY KEY,governorate TE
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(active,category);
 CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);''')
   init_safka_schema(c)
+  c.executescript("""CREATE TABLE IF NOT EXISTS favorites(
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     PRIMARY KEY(user_id,product_id));
+  CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+  CREATE TABLE IF NOT EXISTS product_reviews(
+     id INTEGER PRIMARY KEY,
+     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+     comment TEXT NOT NULL DEFAULT '',
+     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     UNIQUE(product_id,user_id),
+     CHECK(rating > 3 OR length(trim(comment))>=10));
+  CREATE INDEX IF NOT EXISTS idx_reviews_product ON product_reviews(product_id,created_at);""")
+  if os.environ.get('DATABASE_URL'):
+   c.execute('ALTER TABLE favorites ENABLE ROW LEVEL SECURITY')
+   c.execute('ALTER TABLE product_reviews ENABLE ROW LEVEL SECURITY')
   if os.environ.get('DATABASE_URL'):
    # Keep Supabase Data API anonymous/authorized roles away from merchant edits.
    c.execute('ALTER TABLE product_overrides ENABLE ROW LEVEL SECURITY')
@@ -104,7 +124,7 @@ def staging_gate():
    if not auth or not hmac.compare_digest(auth.password or '',private_password):
     return app.response_class('Staging access only',401,{'WWW-Authenticate':'Basic realm="Shopy Staging"'})
   # Customer accounts work independently of supplier checkout. A shopper must log in to order.
-  if request.path.startswith('/checkout') and not supplier_checkout_live():
+  if request.path.startswith('/checkout') and request.method=='POST' and not supplier_checkout_live():
    # Public checkout requires a verified supplier contract, property mapping,
    # approved commission policy, and an explicit production launch flag.
    owner = current_user() if os.getenv('SHOPY_STAGING_OWNER_CHECKOUT') == '1' else None
@@ -156,6 +176,26 @@ def shipping_quote(conn, governorate,city='',area=''):
  if base:return base['fee'],base['supplier_cost']
  return None
 
+def customer_favorite_ids(conn,user):
+ if not user:return set()
+ return {r['product_id'] for r in conn.execute(
+    'SELECT product_id FROM favorites WHERE user_id=?',(user['id'],)).fetchall()}
+
+def customer_product_rating_map(conn):
+ return {r['product_id']:{'avg':float(r['avg_rating']),'count':r['review_count']}
+         for r in conn.execute("""SELECT product_id,AVG(rating) AS avg_rating,COUNT(*) AS review_count
+               FROM product_reviews GROUP BY product_id""").fetchall()}
+
+def safe_back_url():
+ target=request.form.get('return_to','')
+ if not isinstance(target,str) or not target.startswith('/') or target.startswith('//') or '\\' in target:
+  return '/favorites'
+ # Never let a caller push the browser onto a different domain or a protocol-relative path.
+ if target.startswith('/admin') or target.startswith('/integrations'):
+  return '/favorites'
+ return target[:250]
+
+
 @app.route('/')
 def home():
  capture_campaign()
@@ -166,7 +206,10 @@ def home():
   if category:filters.append('category=?');args.append(category)
   items=c.execute('SELECT * FROM products WHERE '+' AND '.join(filters)+' ORDER BY id DESC',args).fetchall()
   categories=[r['category'] for r in c.execute("SELECT DISTINCT category FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND category!='' ORDER BY category")]
- return render_template('home.html',items=items,term=term,category=category,categories=categories)
+  fav_ids=customer_favorite_ids(c,current_user())
+  ratings_map=customer_product_rating_map(c)
+ return render_template('home.html',items=items,term=term,category=category,
+                        categories=categories,fav_ids=fav_ids,ratings_map=ratings_map)
 
 @app.route('/products/<slug>')
 def product(slug):
@@ -175,8 +218,18 @@ def product(slug):
   p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(slug,)).fetchone()
   if not p:abort(404)
   others=c.execute("SELECT * FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
- with db() as c:media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
- return render_template('product.html',p=p,others=others,media=media,options=json.loads(p['options_json'] or '{}'),stock_ready=supplier_stock_ready(p))
+ with db() as c:
+  media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
+  user=current_user()
+  fav_ids=customer_favorite_ids(c,user)
+  ratings_map=customer_product_rating_map(c)
+  reviews=c.execute("""SELECT rating,comment,created_at FROM product_reviews
+                   WHERE product_id=? ORDER BY created_at DESC,id DESC LIMIT 50""",(p['id'],)).fetchall()
+  mine=(c.execute('SELECT rating,comment FROM product_reviews WHERE product_id=? AND user_id=?',
+         (p['id'],user['id'])).fetchone() if user else None)
+ return render_template('product.html',p=p,others=others,media=media,
+                        options=json.loads(p['options_json'] or '{}'),stock_ready=supplier_stock_ready(p),
+                        fav_ids=fav_ids,ratings_map=ratings_map,reviews=reviews,mine=mine)
 def product_choices(p):
  try:
   data=json.loads(p['options_json'] or '{}')
@@ -267,7 +320,7 @@ def safka_shipping_cities():
 def checkout():
  if not current_user():
   session['checkout_after_login']=True
-  flash('سجل دخولك أو أنشئ حسابًا لتأكيد طلبك ومتابعته.')
+  flash('سجل دخولك أو أنشئ حسابًا لتكمل بيانات الاستلام وتتابع الطلب.')
   return redirect('/login')
  rows=cart_data()
  if not rows:return redirect('/cart')
@@ -284,7 +337,8 @@ def checkout():
   address=request.form.get('address','').strip()[:500];city=request.form.get('city','').strip()[:80];area=request.form.get('area','').strip()[:80]
   if len(name)<2 or not re.fullmatch(r'01[0125]\d{8}',phone) or len(address)<8 or len(city)<2 or len(area)<2:
    flash('راجع الاسم ورقم الموبايل والمدينة والمنطقة والعنوان التفصيلي')
-   return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
+   return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
+                        checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
   key=session['checkout_key']
   try:
    with db() as c:
@@ -293,7 +347,7 @@ def checkout():
     if existing:return redirect('/order/success/'+existing['reference'])
     if mixed_cart:raise ValueError('قسم الطلب: لا يمكن شحن منتجات صفقة ومنتجاتك اليدوية معًا حاليًا')
     rate=(quote_safka_shipping if supplier_cart else shipping_quote)(c,gov,city,area)
-    if rate is None:raise ValueError('لا يوجد سعر شحن مؤكد من المورد لهذه المنطقة')
+    if rate is None:raise ValueError('الشحن غير متاح للعنوان المحدد حاليًا. اختر منطقة مدعومة.')
     fresh=[]
     quantities_by_product={}
     for p,q,choices,_ in rows:
@@ -345,11 +399,13 @@ def checkout():
            WHERE order_id=? AND status='awaiting_provider_configuration'""",
            (type(exc).__name__[:80],cur.lastrowid))
   except ValueError as exc:
-   flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
+   flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
+        checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
   session['cart']={};session.pop('checkout_key',None)
   session.setdefault('my_order_refs',[]).append(ref)
   return redirect('/order/success/'+ref)
- return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
+ return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
+                        checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
 
 @app.route('/order/success/<ref>')
 def order_success(ref):
@@ -362,6 +418,34 @@ def order_success(ref):
   supplier=c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(order['id'],)).fetchone()
  return render_template('success.html',ref=ref,order=order,supplier=supplier)
 
+def complete_customer_auth(uid,role):
+ """Retain a guest shopper's cart across authentication; rotate session safely.
+ Avoid losing cart/order flow when customer must sign in at checkout.
+ """
+ previous_cart=session.get('cart',{})
+ continue_checkout=bool(session.get('checkout_after_login'))
+ pending_fav=session.get('pending_favorite')
+ utm=(session.get('utm_source',''),session.get('utm_campaign',''))
+ session.clear()
+ session['uid']=uid
+ if isinstance(previous_cart,dict):session['cart']=previous_cart
+ if utm[0]:session['utm_source']=utm[0]
+ if utm[1]:session['utm_campaign']=utm[1]
+ if role=='admin':return redirect('/admin')
+ if isinstance(pending_fav,int) and pending_fav>0:
+  with db() as conn:
+   visible=conn.execute("""SELECT 1 FROM products WHERE id=?
+       AND (active=1 OR (source='safka' AND supplier_listed=1))""",(pending_fav,)).fetchone()
+   if visible:
+    conn.execute("""INSERT INTO favorites(user_id,product_id) VALUES(?,?)
+       ON CONFLICT(user_id,product_id) DO NOTHING""",(uid,pending_fav))
+ if continue_checkout and previous_cart:
+  return redirect('/checkout')
+ if pending_fav:
+  return redirect('/favorites')
+ return redirect('/account')
+
+
 @app.route('/register',methods=['GET','POST'])
 def register():
  if request.method=='POST':
@@ -371,11 +455,8 @@ def register():
    try:
     with db() as c:
      cur=c.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(email,generate_password_hash(pw),'customer'))
-     campaign=(session.get('utm_source',''),session.get('utm_campaign',''))
-     session.clear();session['uid']=cur.lastrowid
-     if campaign[0]:session['utm_source']=campaign[0]
-     if campaign[1]:session['utm_campaign']=campaign[1]
-    return redirect('/account')
+     new_user_id=cur.lastrowid
+    return complete_customer_auth(new_user_id,'customer')
    except Exception as exc:
     if isinstance(exc, sqlite3.IntegrityError) or (exc.__class__.__name__ == 'UniqueViolation' and exc.__class__.__module__.startswith('psycopg')):flash('البريد مستخدم بالفعل')
     else:raise
@@ -411,11 +492,7 @@ def login():
  if request.method=='POST':
   with db() as c:u=c.execute('SELECT * FROM users WHERE email=?',(request.form.get('email','').strip().lower(),)).fetchone()
   if u and check_password_hash(u['password'],request.form.get('password','')):
-   campaign=(session.get('utm_source',''),session.get('utm_campaign',''))
-   session.clear();session['uid']=u['id']
-   if campaign[0]:session['utm_source']=campaign[0]
-   if campaign[1]:session['utm_campaign']=campaign[1]
-   return redirect('/admin' if u['role']=='admin' else '/account')
+   return complete_customer_auth(u['id'],u['role'])
   flash('بيانات الدخول غير صحيحة')
  return render_template('auth.html',mode='login')
 @app.post('/logout')
@@ -734,29 +811,81 @@ def update_contact():
  flash('تم حفظ معلومات الدعم')
  return redirect('/admin#integrations')
 
-@app.post('/compare/add/<int:pid>')
-def compare_add(pid):
- with db() as conn:p=conn.execute('SELECT id FROM products WHERE id=? AND active=1',(pid,)).fetchone()
- if p is None:abort(404)
- selected=[int(x) for x in session.get('compare_ids',[]) if str(x).isdigit()]
- if pid not in selected:
-  if len(selected)>=3:flash('يمكن مقارنة 3 منتجات كحد أقصى')
-  else:selected.append(pid)
- session['compare_ids']=selected
- return redirect(request.referrer if request.referrer and request.referrer.startswith(request.host_url) else '/compare')
-
-@app.post('/compare/remove/<int:pid>')
-def compare_remove(pid):
- session['compare_ids']=[int(x) for x in session.get('compare_ids',[]) if str(x).isdigit() and int(x)!=pid]
- return redirect('/compare')
-
-@app.get('/compare')
-def compare_view():
- ids=[int(x) for x in session.get('compare_ids',[]) if str(x).isdigit()][:3]
+@app.post('/favorites/toggle/<int:pid>')
+def toggle_favorite(pid):
+ user=current_user()
+ if not user:
+  # Heart selection survives sign-up/login on this browser.
+  session['pending_favorite']=pid
+  flash('سجل دخولك علشان نحفظ المنتج في مفضلتك تلقائيًا.')
+  return redirect('/login')
+ back=safe_back_url()
  with db() as conn:
-  products=[conn.execute('SELECT * FROM products WHERE id=? AND active=1',(pid,)).fetchone() for pid in ids]
- products=[p for p in products if p is not None]
- return render_template('compare.html',products=products)
+  p=conn.execute("""SELECT id FROM products WHERE id=? AND
+    (active=1 OR (source='safka' AND supplier_listed=1))""",(pid,)).fetchone()
+  if not p:abort(404)
+  old=conn.execute('SELECT 1 FROM favorites WHERE user_id=? AND product_id=?',
+                   (user['id'],pid)).fetchone()
+  if old:
+   conn.execute('DELETE FROM favorites WHERE user_id=? AND product_id=?',(user['id'],pid))
+   flash('اتشال من المفضلة')
+  else:
+   conn.execute("""INSERT INTO favorites(user_id,product_id) VALUES(?,?)
+                ON CONFLICT(user_id,product_id) DO NOTHING""",(user['id'],pid))
+   flash('اتضاف للمفضلة')
+ return redirect(back)
+
+@app.get('/favorites')
+def favorites():
+ user=current_user()
+ if not user:
+  flash('سجل دخولك علشان تفتح قائمة المفضلة الخاصة بيك.')
+  return redirect('/login')
+ with db() as conn:
+  items=conn.execute("""SELECT p.* FROM products p
+      JOIN favorites f ON f.product_id=p.id
+      WHERE f.user_id=? AND (p.active=1 OR (p.source='safka' AND p.supplier_listed=1))
+      ORDER BY f.created_at DESC,p.id DESC""",(user['id'],)).fetchall()
+  fav_ids=customer_favorite_ids(conn,user)
+  ratings_map=customer_product_rating_map(conn)
+ return render_template('favorites.html',items=items,fav_ids=fav_ids,ratings_map=ratings_map)
+
+@app.post('/products/<int:pid>/review')
+def submit_product_review(pid):
+ user=current_user()
+ if not user:
+  flash('سجل دخولك علشان تقيّم المنتج.')
+  return redirect('/login')
+ raw=request.form.get('rating','')
+ comment=request.form.get('comment','').strip()
+ if raw not in ('1','2','3','4','5'):
+  flash('اختار تقييم من نجمة إلى خمس نجوم.')
+  return redirect('/products/'+request.form.get('slug',''))
+ rating=int(raw)
+ if rating<=3 and len(comment)<10:
+  flash('لو تقييمك 3 نجوم أو أقل، اكتب سبب التقييم (10 حروف على الأقل).')
+  return redirect('/products/'+request.form.get('slug',''))
+ if len(comment)>1200:
+  flash('التعليق طويل جدًا؛ الحد الأقصى 1200 حرف.')
+  return redirect('/products/'+request.form.get('slug',''))
+ with db() as conn:
+  p=conn.execute("""SELECT id,slug FROM products WHERE id=? AND
+    (active=1 OR (source='safka' AND supplier_listed=1))""",(pid,)).fetchone()
+  if not p:abort(404)
+  # One editable review per signed-in customer per product.
+  conn.execute("""INSERT INTO product_reviews(product_id,user_id,rating,comment)
+     VALUES(?,?,?,?)
+     ON CONFLICT(product_id,user_id) DO UPDATE SET rating=excluded.rating,
+     comment=excluded.comment,updated_at=CURRENT_TIMESTAMP""",
+     (pid,user['id'],rating,comment))
+ flash('شكرًا على رأيك! اتسجل تقييمك للمنتج.')
+ return redirect('/products/'+p['slug']+'#reviews')
+
+# Old comparison links redirect to the new favorites experience; no compare UI.
+@app.get('/compare')
+def legacy_compare():
+ return redirect('/favorites',code=302)
+
 
 # Transparent, rule-based guided finder. Never invent items or call an unconfigured AI provider.
 AR_SYNONYMS={
@@ -835,7 +964,12 @@ def assistant():
   allowed=[p for p in products if (budget is None or p['price']<=budget) and (not category or p['category']==category)]
   refined=local_ai_recommend(allowed,query,budget,category)
   if refined is not None:matches=refined;engine='ollama'
- return render_template('assistant.html',matches=matches,need=query,budget=raw_budget,category=category,categories=categories,warning=warning,asked=request.method=='POST',engine=engine)
+ with db() as conn:
+  fav_ids=customer_favorite_ids(conn,current_user())
+  ratings_map=customer_product_rating_map(conn)
+ return render_template('assistant.html',matches=matches,need=query,budget=raw_budget,
+    category=category,categories=categories,warning=warning,
+    asked=request.method=='POST',engine=engine,fav_ids=fav_ids,ratings_map=ratings_map)
 
 
 @app.post('/integrations/safka/hook/<kind>/<token>')
@@ -995,7 +1129,7 @@ def check_safka_connection():
 def integrations_redirect():return redirect('/admin#integrations')
 
 @app.route('/robots.txt')
-def robots():return app.response_class('User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /checkout\nDisallow: /cart\nDisallow: /compare\nDisallow: /assistant\nDisallow: /order\n',mimetype='text/plain')
+def robots():return app.response_class('User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /checkout\nDisallow: /cart\nDisallow: /favorites\nDisallow: /assistant\nDisallow: /order\n',mimetype='text/plain')
 @app.route('/sitemap.xml')
 def sitemap():
  from xml.sax.saxutils import escape

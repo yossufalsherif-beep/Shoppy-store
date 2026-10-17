@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}المفضلة — Shopy Store{% endblock %}
+{% block content %}
+<section class="page-title"><span class="eyebrow">اختياراتك</span><h1>قائمة المفضلة <span aria-hidden="true">♥</span></h1>
+<p>احتفظ بالمنتجات اللي عجبتك، وارجع لها في أي وقت من حسابك.</p></section>
+{% if items %}
+<div class="product-grid">{% for item in items %}{% include '_product_card.html' %}{% endfor %}</div>
+{% else %}
+<div class="empty"><span class="empty-icon" aria-hidden="true">♡</span><h2>مفضلتك لسه فاضية</h2>
+<p>اضغط على علامة القلب عند أي منتج علشان تحفظه هنا.</p>
+<a href="/#catalog" class="btn btn-dark">تصفح المنتجات ←</a></div>
+{% endif %}
+{% endblock %}
