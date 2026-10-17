@@ -73,6 +73,34 @@ class PricingTests(unittest.TestCase):
         normalized=normalize_product({'id':1,'name':'منتج','price':100,'category':'اختبار'})
         self.assertIsNone(normalized['stock'])
 
+    def test_safka_public_product_list_mapping_remains_unpublished(self):
+        sample = {'_id':'673a2c721548cec72da05e36', 'name':'منتج صفقة',
+                  'barcode':'6RZ254b','sale_price':180,
+                  'images':['https://example.com/a.jpg'],
+                  'properties':[{'key':'مقاس','value':35}],
+                  'is_active':True}
+        mapped = normalize_product(sample)
+        self.assertEqual(mapped['supplier_cost'],18000)
+        self.assertEqual(mapped['category'],'غير مصنف (صفقة)')
+        self.assertIsNone(mapped['stock'])
+        self.assertEqual(mapped['options'],{})
+        with database() as conn:
+            import_products(conn,[sample])
+            imported=conn.execute("SELECT active FROM products WHERE source='safka'").fetchone()
+            self.assertEqual(imported['active'],0)
+
+    def test_safka_price_list_governorate_mapping(self):
+        sample={'_id':'price-1','governorateNameAr':'الجيزة','price':45,'cities':[]}
+        mapped=normalize_shipping(sample)
+        self.assertEqual(mapped['governorate'],'الجيزة')
+        self.assertEqual(mapped['fee'],5500)
+        self.assertEqual(mapped['pricing_document_id'],'price-1')
+
+    def test_safka_nested_cities_must_not_be_flattened(self):
+        with self.assertRaises(CatalogValidationError):
+            normalize_shipping({'_id':'price-2','governorateNameAr':'الجيزة',
+                                'price':45,'cities':[{'name':'الدقي','price':75}]})
+
     def test_variants_unknown_format_not_silently_dropped(self):
         row=fake_product()
         row['variants']=[{'id':1,'size':'S'}]
