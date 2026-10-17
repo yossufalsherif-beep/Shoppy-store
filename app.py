@@ -247,6 +247,15 @@ def quote_shipping():
  if quoted is None:return jsonify(ok=False,message='الشحن غير متاح للعنوان المحدد'),404
  return jsonify(ok=True,shipping_piastres=quoted[0])
 
+@app.get('/api/shipping-cities')
+def safka_shipping_cities():
+ governorate=request.args.get('governorate','').strip()[:80]
+ if not governorate:return jsonify(cities=[])
+ with db() as conn:
+  rows=conn.execute("SELECT DISTINCT city FROM safka_shipping_rates WHERE governorate=? AND city!='' ORDER BY city",(governorate,)).fetchall()
+ return jsonify(cities=[r['city'] for r in rows][:1000])
+
+
 @app.route('/checkout',methods=['GET','POST'])
 def checkout():
  if not current_user():
@@ -268,7 +277,7 @@ def checkout():
   address=request.form.get('address','').strip()[:500];city=request.form.get('city','').strip()[:80];area=request.form.get('area','').strip()[:80]
   if len(name)<2 or not re.fullmatch(r'01[0125]\d{8}',phone) or len(address)<8 or len(city)<2 or len(area)<2:
    flash('راجع الاسم ورقم الموبايل والمدينة والمنطقة والعنوان التفصيلي')
-   return render_template('checkout.html',rows=rows,rates=rates)
+   return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
   key=session['checkout_key']
   try:
    with db() as c:
