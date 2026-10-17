@@ -429,6 +429,102 @@ def account():
   details={o['id']:c.execute('SELECT title,quantity,unit_price FROM order_items WHERE order_id=?',(o['id'],)).fetchall() for o in orders}
   supplier_states={o['id']:c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(o['id'],)).fetchone() for o in orders}
  return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states)
+@app.route('/admin/safka/first-order',methods=['GET','POST'])
+@admin_only
+def safka_owner_first_order():
+ """Private readiness and SINGLE draft. Sending to Safka requires
+ a separate confirmation on the existing one-order review page.
+ """
+ from safka_admin_sync import (api_page,checked_shipping,
+                               sync_shipping_snapshot,inspect_safka_shipping)
+ from urllib.error import HTTPError,URLError
+ report=None
+ if request.method=='POST':
+  action=request.form.get('action','')
+  if action=='shipping':
+   key=os.getenv('SHOPY_SAFKA_API_KEY','').strip()
+   if os.getenv('SHOPY_SAFKA_READ_ENABLED')!='1' or len(key)<12:
+    flash('مفتاح قراءة صفقة أو صلاحية القراءة غير مهيأ')
+   else:
+    try:
+     path=os.getenv('SHOPY_SAFKA_SHIPPING_PATH','/api/v1/public/price-list').strip()
+     payload,records=api_page(key,path,'shipping',page=1,size=50,timeout=9)
+     rates=checked_shipping(payload,records)
+     with db() as c:outcome=sync_shipping_snapshot(c,rates)
+     flash('تمت مزامنة '+str(outcome['updated'])+' تعريفة مدينة من صفقة بشكل آمن')
+    except (HTTPError,URLError,OSError,ValueError,TypeError,KeyError,CatalogValidationError) as exc:
+     # Provider error bodies must not be displayed or stored.
+     flash('تعذر تحديث الشحن. بيتم فحص حقول الاستجابة من غير عرض بيانات حساسة.')
+     try:report=inspect_safka_shipping(key)
+     except Exception:report={'validation':'تعذر فحص الاستجابة، راجع صلاحية API واتصال صفقة'}
+  elif action=='prepare':
+   if not request.form.get('draft_confirm'):
+    flash('لازم تأكد إن بيانات الاختبار صحيحة قبل حفظ المسودة')
+    return redirect('/admin/safka/first-order')
+   raw_id=request.form.get('product_id','')
+   if not raw_id.isdecimal():abort(400)
+   product_id=int(raw_id)
+   name=request.form.get('name','').strip()[:120]
+   phone=request.form.get('phone','').strip()
+   gov=request.form.get('governorate','').strip()[:80]
+   city=request.form.get('city','').strip()[:80]
+   area=request.form.get('area','').strip()[:80]
+   address=request.form.get('address','').strip()[:500]
+   if (len(name)<2 or not re.fullmatch(r'01[0125][0-9]{8}',phone) or
+        len(city)<2 or len(area)<2 or len(address)<8 or not gov):
+    flash('راجع الاسم ورقم الهاتف والمدينة والمنطقة والعنوان التفصيلي')
+    return redirect('/admin/safka/first-order')
+   with db() as c:
+    p=c.execute("""SELECT * FROM products WHERE id=? AND source='safka'
+                 AND active=1 AND supplier_listed=1""",(product_id,)).fetchone()
+    rate=quote_safka_shipping(c,gov,city,area)
+    pricing_id=(shipping_pricing_document_id(c,gov,city,area,rate[0],rate[1])
+                if rate else None)
+    if not p or not supplier_stock_ready(p,1) or product_choices(p):
+     flash('المنتج غير صالح لاختبار أول أوردر: اختر منتج صفقة حديث بدون مقاسات أو ألوان')
+     return redirect('/admin/safka/first-order')
+    if (not rate or not pricing_id or rate[1] is None):
+     flash('لا يوجد سعر شحن موثق للمدينة ومعرّف التسعيرة الرسمي. جهز الشحن أولًا')
+     return redirect('/admin/safka/first-order')
+    if p['supplier_cost'] is None or p['price']<p['supplier_cost']:
+     flash('تكلفة المنتج أو سعر البيع يحتاجان مراجعة قبل اختبار المورد')
+     return redirect('/admin/safka/first-order')
+    total=p['price']+rate[0]
+    if total>50000:
+     flash('لأول أوردر اختبار اختر منتجًا بإجمالي لا يتجاوز 500 جنيه. لا يوجد إرسال الآن')
+     return redirect('/admin/safka/first-order')
+    ref='SH-TEST-'+secrets.token_hex(5).upper()
+    # Distinct owner test idempotency key; no public checkout is opened.
+    key='owner-first-'+secrets.token_urlsafe(18)
+    full_address=' | '.join((city,area,address))
+    cur=c.execute("""INSERT INTO orders(
+       reference,user_id,customer,phone,governorate,address,shipping_fee,total,
+       checkout_key,shipping_supplier_cost,safka_shipping_pricing_document_id)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+       (ref,current_user()['id'],name,phone,gov,full_address,rate[0],total,
+        key,rate[1],pricing_id))
+    oid=cur.lastrowid
+    c.execute("""INSERT INTO order_items(
+      order_id,product_id,title,unit_price,quantity,variant_json,unit_cost)
+      VALUES(?,?,?,?,?,?,?)""",
+      (oid,p['id'],p['title'],p['price'],1,'{}',p['supplier_cost']))
+    queue_safka_order(c,oid)
+   flash('مسودة طلب اختبار محفوظة. لم يتم إرسالها لصفقة. راجع الإجمالي والبيانات أولًا')
+   return redirect('/admin/safka/order/'+str(oid)+'/preview')
+  else:
+   abort(400)
+ with db() as c:
+  products=c.execute("""SELECT id,title,price,supplier_cost,slug FROM products
+       WHERE source='safka' AND active=1 AND supplier_listed=1
+       AND supplier_cost IS NOT NULL AND price<=50000
+       AND options_json='{}' ORDER BY price ASC LIMIT 200""").fetchall()
+  governorates=c.execute("""SELECT DISTINCT governorate FROM safka_shipping_rates
+       ORDER BY governorate""").fetchall()
+  n_rates=c.execute('SELECT COUNT(*) FROM safka_shipping_rates').fetchone()[0]
+ return render_template('safka_first_order.html',products=products,
+      governorates=governorates,n_rates=n_rates,report=report)
+
+
 @app.get('/admin/safka/order/<int:oid>/preview')
 @admin_only
 def preview_safka_order(oid):
