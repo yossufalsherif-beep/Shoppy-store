@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS products(
  options_json TEXT NOT NULL DEFAULT '{}',category TEXT NOT NULL DEFAULT '',
  supplier_cost BIGINT,source TEXT NOT NULL DEFAULT 'manual',
  supplier_product_id TEXT,supplier_product_code TEXT,supplier_stock INTEGER,
- supplier_last_sync TEXT
+ supplier_last_sync TEXT,supplier_available INTEGER,supplier_rating REAL,
+ supplier_review_count INTEGER,supplier_listed INTEGER NOT NULL DEFAULT 1,
+ supplier_catalog_generation TEXT
 );
 CREATE TABLE IF NOT EXISTS shipping(
  id BIGSERIAL PRIMARY KEY,governorate TEXT UNIQUE NOT NULL,
