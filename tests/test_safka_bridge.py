@@ -15,6 +15,7 @@ from safka_bridge import (
     import_shipping,quote_safka_shipping,queue_safka_order,order_preview,
     supplier_stock_ready,CatalogValidationError)
 from safka_import import _extract_list
+from safka_probe import preview_records
 
 
 def fake_product(product_id='A',price=30,stock=5,category='إلكترونيات'):
@@ -42,6 +43,19 @@ def database():
     ''')
     init_safka_schema(c)
     return c
+
+
+class PreviewPaginationTests(unittest.TestCase):
+    def test_shipping_preview_caps_ignored_page_size(self):
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self, *args): return self._bytes
+            _bytes = json.dumps({'success':True,'data':[{'_id':str(i),'governorateNameAr':'الجيزة','price':50,'cities':[]} for i in range(27)]}).encode()
+        with patch('safka_probe._SAFE_OPENER.open',return_value=FakeResponse()):
+            results=preview_records('/api/v1/public/price-list','fake-key','shipping',timeout=1)
+        self.assertEqual(len(results),2)
+        self.assertEqual(results[0]['_id'],'0')
 
 
 class PricingTests(unittest.TestCase):
