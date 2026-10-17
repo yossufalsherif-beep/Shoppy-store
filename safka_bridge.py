@@ -297,7 +297,7 @@ def import_products(conn, records, *, complete=False, source_label='local-json')
     try:
         for p in rows:
             old = conn.execute("SELECT id,image FROM products WHERE source='safka' AND supplier_product_id=?", (p['supplier_id'],)).fetchone()
-            active = 1 if p['stock'] is not None and p['stock'] > 0 else 0
+            active = 1 if p['stock'] is not None and p['stock'] > 0 and p['supplier_available'] is not False else 0
             if old:
                 pid = old['id']
                 conn.execute('''UPDATE products SET title=?,description=?,category=?,price=?,supplier_cost=?,
@@ -455,6 +455,8 @@ def supplier_stock_ready(p, qty=1):
     """Don't advertise stale or unverified Safka inventory as orderable."""
     if p['source']!='safka':
         return True
+    if 'supplier_available' in p.keys() and p['supplier_available'] == 0:
+        return False
     count = p['supplier_stock']
     if count is None or count < qty:
         return False
