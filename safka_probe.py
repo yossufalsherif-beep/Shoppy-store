@@ -16,14 +16,14 @@ from safka_import import _extract_list, _SAFE_OPENER
 load_dotenv(Path(__file__).resolve().parent / '.env')
 
 
-def safe_keys(path, key):
+def safe_keys(path, key, timeout=20):
     if not path.startswith('/api/v1/public/') or '?' in path or '#' in path or '//' in path:
         raise ValueError('Invalid Safka public read endpoint path')
     query = urllib.parse.urlencode({'page': 1, 'size': 2})
     req = urllib.request.Request('https://api.safka-eg.com' + path + '?' + query,
                                  headers={'api-safka-key':key,'Accept':'application/json','User-Agent':'ShopyStoreLocalIntegration/1.0'},
                                  method='GET')
-    with _SAFE_OPENER.open(req, timeout=20) as response:
+    with _SAFE_OPENER.open(req, timeout=timeout) as response:
         payload = json.load(response)
     if isinstance(payload,dict) and payload.get('success') is False:
         raise ValueError('Safka reported an error; verify the account and endpoint')
