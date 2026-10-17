@@ -151,3 +151,44 @@ def sync_product_page(conn, records, page, pages):
 def sync_shipping_snapshot(conn, flattened):
     # Atomic replacement of Safka-only rates; manual shipping and orders untouched.
     return import_shipping(conn,flattened,source_label='api-admin-verified')
+
+
+def inspect_safka_shipping(key, *, timeout=9):
+    """A small, read-only, owner-facing schema report: NO secret, prices or addresses.
+
+    Diagnostic results do not change saved rates. Only fully validated
+    price-lists can be imported through checked_shipping() separately.
+    """
+    if not isinstance(key,str) or len(key.strip())<12:
+        raise CatalogValidationError('Private Safka API key is missing')
+    url=HOST+'/api/v1/public/price-list?page=1&size=50'
+    req=urllib.request.Request(url,headers={
+        'api-safka-key':key.strip(),'Accept':'application/json',
+        'User-Agent':'ShopyStoreIntegration/1.0'},method='GET')
+    with _SAFE_OPENER.open(req,timeout=timeout) as response:
+        blob=response.read(LIMIT_BYTES+1)
+    if len(blob)>LIMIT_BYTES:
+        raise CatalogValidationError('Supplier price-list is larger than expected')
+    payload=json.loads(blob)
+    if not isinstance(payload,dict):
+        raise CatalogValidationError('Expected a JSON price-list object')
+    records=_extract_list(payload,'shipping')
+    sample=records[0] if records and isinstance(records[0],dict) else {}
+    cities=sample.get('cities') if isinstance(sample.get('cities'),list) else []
+    city=cities[0] if cities and isinstance(cities[0],dict) else {}
+    report={
+      'top_level_keys':sorted(str(k)[:55] for k in payload.keys())[:35],
+      'records':len(records),
+      'first_record_keys':sorted(str(k)[:55] for k in sample.keys())[:45],
+      'first_city_keys':sorted(str(k)[:55] for k in city.keys())[:35],
+      'first_record_city_count':len(cities),
+      'declared_active_governorates':str(payload.get('totalActiveGovernorates',''))[:16],
+      'declared_items_count':str(payload.get('itemsCount',''))[:16],
+    }
+    try:
+        rates=checked_shipping(payload,records)
+        report['validation']='تم التحقق من قائمة الشحن كاملة'
+        report['shipping_city_rows']=len(rates)
+    except CatalogValidationError as exc:
+        report['validation']='تعذر إكمال التحقق: '+str(exc)[:150]
+    return report
