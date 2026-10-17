@@ -39,6 +39,13 @@ class ShippingAndPropertyTests(unittest.TestCase):
    self.assertEqual(kw['page'],1)
    return {'itemsCount':2,'pages':3},[self.sample('a','القاهرة',1),self.sample('b','الجيزة',336)]
   self.assertEqual(len(shipping_snapshot('offline',read=read)),2)
+ def test_total_count_includes_inactive_governorate_but_only_active_rates_import(self):
+  active=self.sample('a','القاهرة',1)
+  inactive=self.sample('b','الجيزة',336);inactive['is_active']=False
+  rows=shipping_snapshot('offline',read=lambda *a,**k:(
+      {'itemsCount':2,'totalActiveGovernorates':1,'pages':3},[active,inactive]))
+  self.assertEqual(len(rows),1)
+  self.assertEqual(rows[0]['governorateNameAr'],'القاهرة')
  def test_incomplete_and_unknown_city_snapshots_are_rejected(self):
   with self.assertRaises(CatalogValidationError):
    shipping_snapshot('offline',read=lambda *a,**k:({'itemsCount':2},[self.sample('a','القاهرة',1)]))

@@ -62,16 +62,18 @@ def checked_shipping(payload, records):
     # Safka's price-list has been observed returning all 27 governorates
     # in one response despite a larger reported page count. Verify actual
     # itemsCount (or totalActiveGovernorates) before atomically replacing data.
-    total=payload.get('totalActiveGovernorates',payload.get('itemsCount'))
+    total=payload.get('itemsCount',payload.get('totalActiveGovernorates'))
     try:
         active=int(total)
     except (ValueError,TypeError):
         raise CatalogValidationError('Missing authoritative governorate count') from None
     if not isinstance(records,list) or active<1 or active>27 or len(records)!=active:
         raise CatalogValidationError('Incomplete Safka price-list snapshot; no shipping changed')
-    if any(row.get('is_active') is False for row in records if isinstance(row,dict)):
-        raise CatalogValidationError('Price-list contains inactive governorates')
-    flattened=expand_safka_shipping(records)
+    active_records=[row for row in records if not isinstance(row,dict) or row.get('is_active') is not False]
+    active_count=payload.get('totalActiveGovernorates')
+    if active_count is not None and (isinstance(active_count,bool) or int(active_count)!=len(active_records)):
+        raise CatalogValidationError('Incomplete active governorate snapshot')
+    flattened=expand_safka_shipping(active_records)
     if not flattened or len(flattened)>10000:
         raise CatalogValidationError('Invalid expanded city count')
     normalized=[normalize_shipping(row) for row in flattened]
