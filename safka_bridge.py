@@ -137,12 +137,14 @@ def normalize_product(raw):
     title = _text(_first(raw, 'name', 'title', 'product_name', 'name_ar'), 180)
     if not title:
         raise CatalogValidationError('Supplier product name missing')
-    cost = egp_to_piastres(_first(raw, 'price', 'product_price', 'base_price'))
+    cost = egp_to_piastres(_first(raw, 'sale_price', 'price', 'product_price', 'base_price'))
     if cost == 0:
         raise CatalogValidationError('Refusing an unpriced supplier product')
     category = _category_text(_first(raw, 'category_path', 'categories', 'category', 'category_name'))
     if not category:
-        raise CatalogValidationError('Supplier category missing')
+        # Safka public Products List currently omits categories. Explicitly mark
+        # as unclassified; do not invent a category or publish without stock.
+        category = 'غير مصنف (صفقة)'
     qty = _stock(raw)
     desc = _text(_first(raw, 'description', 'product_description', 'description_ar'))
     images = _urls(_first(raw, 'images', 'product_images', 'image_urls', 'image', 'image_url'))
@@ -166,7 +168,11 @@ def normalize_product(raw):
 def normalize_shipping(raw):
     if not isinstance(raw, dict):
         raise CatalogValidationError('Shipping entry is not an object')
-    gov = _text(_first(raw, 'governorate', 'governorate_name', 'province'), 80)
+    gov = _text(_first(raw, 'governorateNameAr', 'governorate', 'governorate_name', 'province'), 80)
+    # Safka price-list may contain nested cities. Do not collapse city-specific
+    # pricing into a governorate-wide fee before the nested schema is verified.
+    if isinstance(raw.get('cities'), list) and raw['cities']:
+        raise CatalogValidationError('Safka nested cities require verified shipping-rate mapping')
     city = _text(_first(raw, 'city', 'city_name', 'markaz'), 80)
     area = _text(_first(raw, 'area', 'area_name', 'district'), 80)
     price = egp_to_piastres(_first(raw, 'shipping_fee', 'fee', 'price', 'shipping_price'))
