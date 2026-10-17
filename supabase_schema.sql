@@ -77,6 +77,26 @@ CREATE TABLE IF NOT EXISTS product_overrides(
  title TEXT NOT NULL,description TEXT NOT NULL,category TEXT NOT NULL,
  price BIGINT NOT NULL,options_json TEXT NOT NULL DEFAULT '{}'
 );
+CREATE TABLE IF NOT EXISTS favorites(
+ user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
+ PRIMARY KEY(user_id,product_id)
+);
+CREATE TABLE IF NOT EXISTS product_reviews(
+ id BIGSERIAL PRIMARY KEY,
+ product_id BIGINT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+ user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+ comment TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
+ updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
+ UNIQUE(product_id,user_id),
+ CHECK(rating > 3 OR length(trim(comment))>=10)
+);
+CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_product ON product_reviews(product_id,created_at);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_checkout_key ON orders(checkout_key);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(active,category);
 CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);
@@ -98,4 +118,6 @@ ALTER TABLE safka_sync_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE safka_order_outbox ENABLE ROW LEVEL SECURITY;
 ALTER TABLE safka_schema_meta ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_overrides ENABLE ROW LEVEL SECURITY;
+ALTER TABLE favorites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_reviews ENABLE ROW LEVEL SECURITY;
 COMMIT;
