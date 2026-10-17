@@ -772,6 +772,37 @@ def assistant():
  return render_template('assistant.html',matches=matches,need=query,budget=raw_budget,category=category,categories=categories,warning=warning,asked=request.method=='POST',engine=engine)
 
 
+@app.post('/admin/safka/check-connection')
+@admin_only
+def check_safka_connection():
+ # A voluntary read-only diagnostic, strictly for the signed-in owner.
+ # No DB writes, import, webhook registration, or provider order submission.
+ if os.getenv('SHOPY_SAFKA_READ_ENABLED') != '1':
+  flash('صفقة: تفعيل قراءة API غير مفعل على الاستضافة.')
+  return redirect('/admin#integrations')
+ key=os.getenv('SHOPY_SAFKA_API_KEY','')
+ if len(key.strip()) < 12:
+  flash('صفقة: مفتاح API غير مُهيأ على الخادم.')
+  return redirect('/admin#integrations')
+ from safka_probe import safe_keys
+ from urllib.error import HTTPError, URLError
+ for label,variable in [('المنتجات','SHOPY_SAFKA_PRODUCTS_PATH'),('الشحن','SHOPY_SAFKA_SHIPPING_PATH')]:
+  path=os.getenv(variable,'').strip()
+  if not path:
+   flash('صفقة - '+label+': مسار القراءة الرسمي لم يُضبط بعد ('+variable+').')
+   continue
+  try:
+   data=safe_keys(path,key)
+   # Show field names only; never expose response values, the API key, or raw exceptions.
+   fields=[str(x)[:48] for x in data.get('record_field_names',[])[:20]]
+   top=[str(x)[:48] for x in data.get('top_level_fields',[])[:15]]
+   flash('صفقة - '+label+': نجح طلب القراءة. عدد السجلات في العينة: '+str(data['sample_record_count'])+'؛ الحقول: '+(', '.join(fields) or 'لم تتوفر حقول سجلات')+'؛ الغلاف: '+(', '.join(top) or 'لا يوجد')+'.')
+  except HTTPError as exc:
+   flash('صفقة - '+label+': رفض HTTP '+str(exc.code)+'. راجع الصلاحيات والمسار الرسمي.')
+  except (URLError,TimeoutError,OSError,ValueError,TypeError) as exc:
+   flash('صفقة - '+label+': فشل الفحص ('+type(exc).__name__+'). لم يتغير أي منتج.')
+ return redirect('/admin#integrations')
+
 @app.get('/admin/integrations')
 @admin_only
 def integrations_redirect():return redirect('/admin#integrations')
