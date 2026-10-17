@@ -14,7 +14,7 @@
 <a class="text-link" href="https://public-api-docs.safka-eg.com/" target="_blank" rel="noopener">التوثيق الرسمي لصفقة ↗</a>
 </div>
 <div class="panel"><h3>📥 استيراد صفقة — تحكم الأدمن</h3>
-<p class="fine-print">بعد نجاح المعاينة، استورد منتجات صفقة كمسودات غير منشورة في دفعات (حتى 50 منتجًا في المرة). اضغط «الدفعة التالية» لتكملة بقية الصفحات. لا تُحذف منتجاتك اليدوية ولا تُرسل طلبات للمورد.</p>
+<p class="fine-print">بعد نجاح المعاينة، استورد منتجات صفقة كمسودات غير منشورة في دفعات (حتى 50 منتجًا في المرة). الدفعة التالية حاليًا: <strong>{{settings.get('safka_admin_next_page','1')}}</strong>. اضغط «الدفعة التالية» لتكملة بقية الصفحات. لا تُحذف منتجاتك اليدوية ولا تُرسل طلبات للمورد.</p>
 <form method="post" action="/admin/safka/sync" class="admin-form">
 <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="kind" value="products">
 <button type="submit" class="btn btn-outline">استيراد دفعة منتجات صفقة (غير منشورة)</button></form>
