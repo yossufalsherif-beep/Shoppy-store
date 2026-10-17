@@ -41,6 +41,7 @@ class SafkaAdminFlowTests(unittest.TestCase):
         with store.db() as c:
             c.execute("INSERT INTO products(title,slug,description,price,source) VALUES('Manual','manual','',10000,'manual')")
             c.execute("INSERT INTO shipping(governorate,fee) VALUES('القاهرة',6000)")
+        payload['csrf']=self.token()  # login rotates CSRF session
         attempt=self.client.post('/admin/safka/replace-manual-catalog',data=payload,follow_redirects=True)
         self.assertEqual(attempt.status_code,200)
         with store.db() as c:self.assertEqual(c.execute("SELECT COUNT(*) FROM products WHERE source='manual'").fetchone()[0],1)
