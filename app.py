@@ -399,7 +399,8 @@ def checkout():
            WHERE order_id=? AND status='awaiting_provider_configuration'""",
            (type(exc).__name__[:80],cur.lastrowid))
   except ValueError as exc:
-   flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
+   flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
+        checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
   session['cart']={};session.pop('checkout_key',None)
   session.setdefault('my_order_refs',[]).append(ref)
   return redirect('/order/success/'+ref)
