@@ -112,6 +112,10 @@ def noindex_staging(resp):
 @app.before_request
 def protect():
  if request.method in ('POST','PUT','PATCH','DELETE'):
+  # Provider POSTs have no browser session/CSRF. Their separate opaque URL
+  # tokens must be verified inside the webhook handler before accepting data.
+  if request.path.startswith('/integrations/safka/hook/'):
+   return
   if not hmac.compare_digest(request.form.get('csrf',''),session.get('csrf','_')):abort(400,'Invalid CSRF token')
 def admin_only(fn):
  @wraps(fn)
@@ -487,7 +491,10 @@ FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id GROUP BY o.id''').fet
   safka_sync=c.execute('SELECT kind,updated,hidden,created_at,source_label FROM safka_sync_runs ORDER BY id DESC LIMIT 6').fetchall()
   safka_count=c.execute("SELECT COUNT(*) FROM products WHERE source='safka'").fetchone()[0]
   cleanup_state=safka_cleanup_summary(c)
- return render_template('admin.html',orders=orders,products=products,rates=rates,details=details,media_counts=media_counts,product_media=product_media,notify_status=notify_status,zones=zones,funnels=funnels,states=states,estimated_margin=estimated_margin,margin_order_count=len(priced),settings=settings,wa_configured=os.environ.get('SHOPY_WA_ENABLED')=='1',safka_states=safka_states,safka_sync=safka_sync,safka_count=safka_count,cleanup_state=cleanup_state,safka_only=safka_only_mode(),cleanup_text=CONFIRM_TEXT,api_read_enabled=os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1',api_key_present=bool(os.getenv('SHOPY_SAFKA_API_KEY')))
+ from safka_webhooks import webhook_token
+ hook_base=request.url_root.rstrip('/')+'/integrations/safka/hook/'
+ safka_hook_urls={kind:hook_base+kind+'/'+webhook_token(app.secret_key,kind) for kind in ('product','order','callback')}
+ return render_template('admin.html',safka_hook_urls=safka_hook_urls,orders=orders,products=products,rates=rates,details=details,media_counts=media_counts,product_media=product_media,notify_status=notify_status,zones=zones,funnels=funnels,states=states,estimated_margin=estimated_margin,margin_order_count=len(priced),settings=settings,wa_configured=os.environ.get('SHOPY_WA_ENABLED')=='1',safka_states=safka_states,safka_sync=safka_sync,safka_count=safka_count,cleanup_state=cleanup_state,safka_only=safka_only_mode(),cleanup_text=CONFIRM_TEXT,api_read_enabled=os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1',api_key_present=bool(os.getenv('SHOPY_SAFKA_API_KEY')))
 
 def parse_money(value):
  try:
@@ -770,6 +777,54 @@ def assistant():
   refined=local_ai_recommend(allowed,query,budget,category)
   if refined is not None:matches=refined;engine='ollama'
  return render_template('assistant.html',matches=matches,need=query,budget=raw_budget,category=category,categories=categories,warning=warning,asked=request.method=='POST',engine=engine)
+
+
+@app.post('/integrations/safka/hook/<kind>/<token>')
+def safka_incoming_hook(kind,token):
+ from safka_webhooks import (authenticate_hook, valid_callback_key,
+                             product_identifier,fetch_product_detail,verified_availability)
+ from safka_bridge import CatalogValidationError
+ from urllib.error import HTTPError, URLError
+ if kind not in ('product','order','callback') or not authenticate_hook(app.secret_key,kind,token):
+  abort(404)
+ if request.content_length and request.content_length>32768:
+  abort(413)
+ if not request.is_json:
+  abort(415)
+ data=request.get_json(silent=True)
+ if not isinstance(data,dict):
+  abort(400)
+ if kind=='callback':
+  # An unsolicited or different API key must never overwrite deployment secrets.
+  # The configured credential is already stored in Vercel; only validate match.
+  if not valid_callback_key(data,os.getenv('SHOPY_SAFKA_API_KEY','')):
+   abort(403)
+  return ('',204)
+ if kind=='order':
+  # Order event schema/signature has not yet been verified. Acknowledge receipt,
+  # but deliberately do not modify order status based on callback claims.
+  return ('',202)
+ # productHook means a product was opened in Safka, not a live inventory event.
+ # Only an authenticated provider detail GET can change an existing stock snapshot.
+ product_id=product_identifier(data)
+ if product_id is None:
+  return ('',202)
+ if os.getenv('SHOPY_SAFKA_READ_ENABLED')!='1':
+  return ('',503)
+ try:
+  item,raw=fetch_product_detail(os.getenv('SHOPY_SAFKA_API_KEY',''),product_id)
+  availability=verified_availability(item,raw)
+  # Keep public purchase disabled when quantity is missing or record inactive.
+  quantity=item['stock'] if availability else (0 if availability is False else None)
+  active=1 if availability is True else 0
+  from datetime import datetime,timezone
+  now=datetime.now(timezone.utc).isoformat()
+  with db() as conn:
+   conn.execute("""UPDATE products SET supplier_stock=?,active=?,supplier_last_sync=?
+        WHERE source='safka' AND supplier_product_id=?""",(quantity,active,now,product_id))
+ except (CatalogValidationError,HTTPError,URLError,ValueError,TypeError,KeyError,OSError):
+  return ('',202)
+ return ('',204)
 
 
 @app.post('/admin/safka/sync')

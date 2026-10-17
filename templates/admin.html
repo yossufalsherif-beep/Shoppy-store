@@ -13,6 +13,15 @@
 <p class="fine-print">الطلبات في لوحة الأدمن محفوظة دائمًا. إرسال طلب اختباري واحد يحتاج مراجعة عقد API، وتفعيلًا مستقلًا، وموافقة من صاحب المتجر على الطلب المحدد. النقل التلقائي ما زال غير مُفعّل، ولا تعتبر حالة «في انتظار الربط» إرسالًا ناجحًا.</p>
 <a class="text-link" href="https://public-api-docs.safka-eg.com/" target="_blank" rel="noopener">التوثيق الرسمي لصفقة ↗</a>
 </div>
+<div class="panel"><h3>🔗 روابط استقبال صفقة — سرية</h3>
+<p class="fine-print">انسخ الروابط من هذه الصفحة للأدمن فقط إلى خانات إعدادات صفقة. كل رابط يحتوي رمز تحقق خاصًا به؛ لا تنشر الروابط أو تشارك صورها. الهوك الخاص بالمنتج ليس إشعار مخزون لحظيًا بالضرورة، وتحديث الكمية لا يحدث إلا بعد قراءة تفاصيل رسمية تؤكد الرقم.</p>
+<label>هوك المنتج — productHook</label>
+<input type="text" dir="ltr" readonly value="{{safka_hook_urls.product}}" onclick="this.select()">
+<label>هوك الطلبات — orderHook</label>
+<input type="text" dir="ltr" readonly value="{{safka_hook_urls.order}}" onclick="this.select()">
+<label>Callback API — تأكيد المفتاح الحالي فقط</label>
+<input type="text" dir="ltr" readonly value="{{safka_hook_urls.callback}}" onclick="this.select()">
+<p class="fine-print">هوك الطلبات يستقبل الإشعار دون تغيير حالة الطلب حتى يتم التحقق من شكل الحدث وتوقيعه. Callback لا يخزن أو يعرض مفتاحًا جديدًا.</p></div>
 <div class="panel"><h3>📥 استيراد صفقة — تحكم الأدمن</h3>
 <p class="fine-print">بعد نجاح المعاينة، استورد منتجات صفقة كمسودات غير منشورة في دفعات (حتى 50 منتجًا في المرة). الدفعة التالية حاليًا: <strong>{{settings.get('safka_admin_next_page','1')}}</strong>. اضغط «الدفعة التالية» لتكملة بقية الصفحات. لا تُحذف منتجاتك اليدوية ولا تُرسل طلبات للمورد.</p>
 <form method="post" action="/admin/safka/sync" class="admin-form">
