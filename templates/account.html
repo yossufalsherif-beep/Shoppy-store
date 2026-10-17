@@ -7,7 +7,7 @@
  {% for o in orders %}
  <details class="manage-item account-order">
   <summary><span><strong dir="ltr">{{o.reference}}</strong><small>{{o.created_at[:16]}} · {{money(o.total)}} ج.م</small></span><strong>{{{'new':'تم استلام الطلب','confirmed':'تم تأكيد الطلب','preparing':'جارٍ التجهيز','shipped':'خرج للتوصيل','delivered':'تم التسليم','cancelled':'تم إلغاء الطلب'}.get(o.status,'الطلب قيد المتابعة')}}</strong></summary>
-  <div class="manage-body"><p>العنوان: {{o.governorate}} — {{o.address}}</p>
+  <div class="manage-body">{% set provider=supplier_states.get(o.id) %}{% if provider %}<p class="supplier-state">{{'تم إرسال الطلب إلى صفقة' if provider.status in ('accepted','submitted') else 'الطلب قيد مراجعة المورد' if provider.status in ('awaiting_provider_configuration','test_sending','unknown','needs_review') else 'تعذر إرسال الطلب للمورد — الدعم يتابع حالته' if provider.status=='rejected' else 'جاري متابعة حالة الطلب'}}</p>{% endif %}<p>العنوان: {{o.governorate}} — {{o.address}}</p>
    {% for item in details.get(o.id,[]) %}<div class="summary-line"><span>{{item.title}} × {{item.quantity}}</span><strong>{{money(item.unit_price*item.quantity)}} ج.م</strong></div>{% endfor %}
    <div class="summary-line"><span>الشحن</span><strong>{{money(o.shipping_fee)}} ج.م</strong></div>
    <div class="summary-line total"><span>الإجمالي عند الاستلام</span><strong>{{money(o.total)}} ج.م</strong></div>
