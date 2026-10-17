@@ -95,7 +95,7 @@ class PricingTests(unittest.TestCase):
                   'is_active':True}
         mapped = normalize_product(sample)
         self.assertEqual(mapped['supplier_cost'],18000)
-        self.assertEqual(mapped['category'],'غير مصنف (صفقة)')
+        self.assertEqual(mapped['category'],'منتجات متنوعة')
         self.assertIsNone(mapped['stock'])
         self.assertEqual(mapped['options'],{})
         with database() as conn:
