@@ -1,24 +1,37 @@
-<a class="product-card" href="/products/{{item.slug}}">
+<article class="product-card">
  <div class="product-cover">
+  <a class="product-cover-link" href="/products/{{item.slug}}" aria-label="عرض {{item.title}}">
   {% if item.image %}<img src="{{item.image}}" alt="{{item.title}}" loading="lazy">
   {% else %}<div class="product-fallback"><span class="fallback-logo">S</span><span>Shopy Store</span></div>{% endif %}
+  </a>
   {% if item.source!='safka' or (item.active and item.supplier_listed) %}
-  <span class="product-stock-badge in-stock">متوفر</span>
+  <span class="product-stock-badge in-stock">متوفر للطلب</span>
   {% elif item.supplier_available is not none and not item.supplier_available %}
   <span class="product-stock-badge out-stock">غير متوفر</span>
-  {% elif item.supplier_available is not none and item.supplier_available %}
-  <span class="product-stock-badge supplier-listing">متوفر للطلب</span>
   {% else %}
   <span class="product-stock-badge checking-stock">جاري تأكيد التوفر</span>
   {% endif %}
-  <span class="product-card-arrow" aria-hidden="true">↗</span>
+  <form class="card-heart-form" method="post" action="/favorites/toggle/{{item.id}}">
+   <input type="hidden" name="csrf" value="{{csrf}}">
+   <input type="hidden" name="return_to" value="{{request.full_path if request.query_string else request.path}}">
+   <button class="favorite-heart {{'is-favorite' if item.id in fav_ids else ''}}" type="submit"
+    aria-pressed="{{'true' if item.id in fav_ids else 'false'}}"
+    aria-label="{{'إزالة من المفضلة' if item.id in fav_ids else 'إضافة إلى المفضلة'}}: {{item.title}}"
+    title="{{'إزالة من المفضلة' if item.id in fav_ids else 'إضافة إلى المفضلة'}}"
+   ><span aria-hidden="true">{{'♥' if item.id in fav_ids else '♡'}}</span></button>
+  </form>
  </div>
- <div class="product-card-info">
-  <span class="eyebrow">Shopy Store</span>
-  <h3>{{item.title}}</h3>
-  {% if item.supplier_rating is not none and item.supplier_review_count and item.supplier_review_count>0 %}
-  <small class="product-rating">★ {{'%.1f'|format(item.supplier_rating)}} <span>({{item.supplier_review_count}})</span></small>
-  {% endif %}
-  <div class="product-card-bottom"><strong>{{money(item.price)}} <small>ج.م</small></strong><span class="round-plus" aria-hidden="true">+</span></div>
- </div>
-</a>
+ <a href="/products/{{item.slug}}" class="product-info-link">
+  <div class="product-card-info">
+   <span class="eyebrow">Shopy Store</span>
+   <h3>{{item.title}}</h3>
+   {% set customer_rating=ratings_map.get(item.id) %}
+   {% if customer_rating %}
+   <small class="product-rating"><span aria-hidden="true">★</span> {{'%.1f'|format(customer_rating.avg)}} <span>({{customer_rating.count}} رأي)</span></small>
+   {% elif item.supplier_rating is not none and item.supplier_review_count and item.supplier_review_count>0 %}
+   <small class="product-rating"><span aria-hidden="true">★</span> {{'%.1f'|format(item.supplier_rating)}} <span>تقييم المورد</span></small>
+   {% endif %}
+   <div class="product-card-bottom"><strong>{{money(item.price)}} <small>ج.م</small></strong><span class="round-plus" aria-hidden="true">←</span></div>
+  </div>
+ </a>
+</article>
