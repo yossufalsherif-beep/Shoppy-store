@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS shipping_zones (id INTEGER PRIMARY KEY,governorate TE
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(active,category);
 CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);''')
   init_safka_schema(c)
+  if os.environ.get('DATABASE_URL'):
+   # Keep Supabase Data API anonymous/authorized roles away from merchant edits.
+   c.execute('ALTER TABLE product_overrides ENABLE ROW LEVEL SECURITY')
   # Never auto-seed demonstration catalog or arbitrary shipping prices.
   # User-owned records remain until an explicit backup + cleanup operation.
 def csrf():return session.setdefault('csrf',secrets.token_urlsafe(24))
