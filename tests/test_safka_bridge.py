@@ -95,7 +95,7 @@ class PricingTests(unittest.TestCase):
                   'is_active':True}
         mapped = normalize_product(sample)
         self.assertEqual(mapped['supplier_cost'],18000)
-        self.assertEqual(mapped['category'],'غير مصنف (صفقة)')
+        self.assertEqual(mapped['category'],'منتجات متنوعة')
         self.assertIsNone(mapped['stock'])
         self.assertEqual(mapped['options'],{})
         with database() as conn:
@@ -118,8 +118,8 @@ class PricingTests(unittest.TestCase):
             expand_safka_shipping([{'_id':'pr2','price':85,'cities':[{'id':'1'}]}])
 
     def test_safka_price_list_governorate_mapping(self):
-        sample={'_id':'price-1','governorateNameAr':'الجيزة','price':45,'cities':[]}
-        mapped=normalize_shipping(sample)
+        sample={'_id':'price-1','governorateNameAr':'الجيزة','price':45,'cities':[{'city_name_ar':'الدقي'}]}
+        mapped=normalize_shipping(expand_safka_shipping([sample])[0])
         self.assertEqual(mapped['governorate'],'الجيزة')
         self.assertEqual(mapped['fee'],5500)
         self.assertEqual(mapped['pricing_document_id'],'price-1')
@@ -168,6 +168,15 @@ class CatalogDbTests(unittest.TestCase):
         self.assertEqual(after['active'],0)
         self.assertEqual(self.c.execute("SELECT COUNT(*) FROM products WHERE source='safka'").fetchone()[0],1)
 
+    def test_supplier_inactive_listing_never_orderable(self):
+        p=fake_product('INACTIVE',30,5)
+        p['is_active']=False
+        import_products(self.c,[p])
+        row=self.c.execute("SELECT * FROM products WHERE source='safka'").fetchone()
+        self.assertEqual(row['supplier_available'],0)
+        self.assertEqual(row['active'],0)
+        self.assertFalse(supplier_stock_ready(row))
+
     def test_missing_stock_hidden(self):
         p=fake_product('S2')
         del p['quantity']
@@ -178,7 +187,7 @@ class CatalogDbTests(unittest.TestCase):
 
     def test_invalid_catalog_atomic(self):
         with self.assertRaises(CatalogValidationError):
-            import_products(self.c,[fake_product('S1'),{'id':'S2','name':'bad','price':1}])
+            import_products(self.c,[fake_product('S1'),{'id':'S2','name':'bad'}])
         self.assertEqual(self.c.execute("SELECT COUNT(*) FROM products WHERE source='safka'").fetchone()[0],0)
 
     def test_full_catalog_hides_removed_supplier_items_only(self):

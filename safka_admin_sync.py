@@ -59,11 +59,15 @@ def checked_products(payload, records, requested_page):
 
 
 def checked_shipping(payload, records):
+    # Safka's price-list has been observed returning all 27 governorates
+    # in one response despite a larger reported page count. Verify actual
+    # itemsCount (or totalActiveGovernorates) before atomically replacing data.
+    total=payload.get('totalActiveGovernorates',payload.get('itemsCount'))
     try:
-        active=int(payload.get('totalActiveGovernorates'))
+        active=int(total)
     except (ValueError,TypeError):
-        raise CatalogValidationError('Missing complete governorate count') from None
-    if not isinstance(records,list) or active<1 or len(records)!=active:
+        raise CatalogValidationError('Missing authoritative governorate count') from None
+    if not isinstance(records,list) or active<1 or active>27 or len(records)!=active:
         raise CatalogValidationError('Incomplete Safka price-list snapshot; no shipping changed')
     if any(row.get('is_active') is False for row in records if isinstance(row,dict)):
         raise CatalogValidationError('Price-list contains inactive governorates')

@@ -6,6 +6,7 @@ from functools import wraps
 from flask import Flask, request, redirect, session, render_template, abort, flash, jsonify
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
+from catalog_quality import clean_description
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
 from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, CatalogValidationError
 from safka_dry_run import prepare_dry_run
@@ -66,9 +67,15 @@ CREATE TABLE IF NOT EXISTS shipping_zones (id INTEGER PRIMARY KEY,governorate TE
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(active,category);
 CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);''')
   init_safka_schema(c)
+  if os.environ.get('DATABASE_URL'):
+   # Keep Supabase Data API anonymous/authorized roles away from merchant edits.
+   c.execute('ALTER TABLE product_overrides ENABLE ROW LEVEL SECURITY')
   # Never auto-seed demonstration catalog or arbitrary shipping prices.
   # User-owned records remain until an explicit backup + cleanup operation.
 def csrf():return session.setdefault('csrf',secrets.token_urlsafe(24))
+@app.template_filter('product_description')
+def product_description(value):return clean_description(value)
+
 @app.template_filter('options_from_json')
 def options_from_json(value):
  try:return json.loads(value or '{}')
@@ -92,9 +99,7 @@ def staging_gate():
    auth=request.authorization
    if not auth or not hmac.compare_digest(auth.password or '',private_password):
     return app.response_class('Staging access only',401,{'WWW-Authenticate':'Basic realm="Shopy Staging"'})
-  # Block customer checkout and account registration during integration testing.
-  if request.path.startswith('/register'):
-   abort(503,'Staging mode: public registration disabled')
+  # Customer accounts work independently of supplier checkout. A shopper must log in to order.
   if request.path.startswith('/checkout'):
    # Only the authenticated owner may generate a staging order for a live
    # one-order provider test. Other visitors never get checkout access.
@@ -245,8 +250,21 @@ def quote_shipping():
  if quoted is None:return jsonify(ok=False,message='الشحن غير متاح للعنوان المحدد'),404
  return jsonify(ok=True,shipping_piastres=quoted[0])
 
+@app.get('/api/shipping-cities')
+def safka_shipping_cities():
+ governorate=request.args.get('governorate','').strip()[:80]
+ if not governorate:return jsonify(cities=[])
+ with db() as conn:
+  rows=conn.execute("SELECT DISTINCT city FROM safka_shipping_rates WHERE governorate=? AND city!='' ORDER BY city",(governorate,)).fetchall()
+ return jsonify(cities=[r['city'] for r in rows][:1000])
+
+
 @app.route('/checkout',methods=['GET','POST'])
 def checkout():
+ if not current_user():
+  session['checkout_after_login']=True
+  flash('سجل دخولك أو أنشئ حسابًا لتأكيد طلبك ومتابعته.')
+  return redirect('/login')
  rows=cart_data()
  if not rows:return redirect('/cart')
  if not session.get('checkout_key'):session['checkout_key']=secrets.token_urlsafe(24)
@@ -262,7 +280,7 @@ def checkout():
   address=request.form.get('address','').strip()[:500];city=request.form.get('city','').strip()[:80];area=request.form.get('area','').strip()[:80]
   if len(name)<2 or not re.fullmatch(r'01[0125]\d{8}',phone) or len(address)<8 or len(city)<2 or len(area)<2:
    flash('راجع الاسم ورقم الموبايل والمدينة والمنطقة والعنوان التفصيلي')
-   return render_template('checkout.html',rows=rows,rates=rates)
+   return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
   key=session['checkout_key']
   try:
    with db() as c:
@@ -311,11 +329,11 @@ def checkout():
     },recipients=recipients,enabled=os.getenv('SHOPY_WA_ENABLED')=='1')
     c.commit()
   except ValueError as exc:
-   flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates)
+   flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
   session['cart']={};session.pop('checkout_key',None)
   session.setdefault('my_order_refs',[]).append(ref)
   return redirect('/order/success/'+ref)
- return render_template('checkout.html',rows=rows,rates=rates)
+ return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart)
 
 @app.route('/order/success/<ref>')
 def order_success(ref):
@@ -332,7 +350,11 @@ def register():
   else:
    try:
     with db() as c:
-     cur=c.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(email,generate_password_hash(pw),'customer'));session.clear();session['uid']=cur.lastrowid
+     cur=c.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(email,generate_password_hash(pw),'customer'))
+     campaign=(session.get('utm_source',''),session.get('utm_campaign',''))
+     session.clear();session['uid']=cur.lastrowid
+     if campaign[0]:session['utm_source']=campaign[0]
+     if campaign[1]:session['utm_campaign']=campaign[1]
     return redirect('/account')
    except Exception as exc:
     if isinstance(exc, sqlite3.IntegrityError) or (exc.__class__.__name__ == 'UniqueViolation' and exc.__class__.__module__.startswith('psycopg')):flash('البريد مستخدم بالفعل')
@@ -369,7 +391,11 @@ def login():
  if request.method=='POST':
   with db() as c:u=c.execute('SELECT * FROM users WHERE email=?',(request.form.get('email','').strip().lower(),)).fetchone()
   if u and check_password_hash(u['password'],request.form.get('password','')):
-   session.clear();session['uid']=u['id'];return redirect('/admin' if u['role']=='admin' else '/account')
+   campaign=(session.get('utm_source',''),session.get('utm_campaign',''))
+   session.clear();session['uid']=u['id']
+   if campaign[0]:session['utm_source']=campaign[0]
+   if campaign[1]:session['utm_campaign']=campaign[1]
+   return redirect('/admin' if u['role']=='admin' else '/account')
   flash('بيانات الدخول غير صحيحة')
  return render_template('auth.html',mode='login')
 @app.post('/logout')
@@ -378,8 +404,10 @@ def logout():session.clear();return redirect('/')
 def account():
  u=current_user()
  if not u:return redirect('/login')
- with db() as c:orders=c.execute('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC',(u['id'],)).fetchall()
- return render_template('account.html',orders=orders)
+ with db() as c:
+  orders=c.execute('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 100',(u['id'],)).fetchall()
+  details={o['id']:c.execute('SELECT title,quantity,unit_price FROM order_items WHERE order_id=?',(o['id'],)).fetchall() for o in orders}
+ return render_template('account.html',orders=orders,details=details)
 @app.get('/admin/safka/order/<int:oid>/preview')
 @admin_only
 def preview_safka_order(oid):
@@ -571,9 +599,8 @@ def add_media(pid):
 @app.post('/admin/product/<int:pid>/edit')
 @admin_only
 def edit_product(pid):
- if safka_only_mode():abort(403,'المنتجات والشحن يتم تحديثها من صفقة فقط')
  title=request.form.get('title','').strip()[:180]
- desc=request.form.get('description','').strip()[:5000]
+ desc=clean_description(request.form.get('description','').strip()[:20000])
  category=request.form.get('category','').strip()[:80]
  raw_cost=request.form.get('supplier_cost','').strip()
  supplier_cost=parse_money(raw_cost) if raw_cost else None
@@ -587,8 +614,19 @@ def edit_product(pid):
  with db() as c:
   product=c.execute('SELECT source FROM products WHERE id=?',(pid,)).fetchone()
   if not product:abort(404)
-  if product['source']=='safka':abort(403,'Supplier-managed price and data cannot be edited manually')
-  c.execute('UPDATE products SET title=?,description=?,price=?,options_json=?,category=?,supplier_cost=? WHERE id=?',(title,desc,price,json.dumps(options,ensure_ascii=False),category,supplier_cost,pid))
+  if product['source']=='safka':
+   # Save a durable merchant-owned overlay. Supplier sync updates base data,
+   # then reapplies these fields without changing verified supplier costs/stock.
+   c.execute("""INSERT INTO product_overrides(product_id,title,description,category,price,options_json)
+   VALUES(?,?,?,?,?,?) ON CONFLICT(product_id) DO UPDATE SET title=excluded.title,
+   description=excluded.description,category=excluded.category,price=excluded.price,
+   options_json=excluded.options_json""",(pid,title,desc,category,price,json.dumps(options,ensure_ascii=False)))
+   c.execute('UPDATE products SET title=?,description=?,price=?,options_json=?,category=? WHERE id=?',
+             (title,desc,price,json.dumps(options,ensure_ascii=False),category,pid))
+  else:
+   if safka_only_mode():abort(403)
+   c.execute('UPDATE products SET title=?,description=?,price=?,options_json=?,category=?,supplier_cost=? WHERE id=?',
+             (title,desc,price,json.dumps(options,ensure_ascii=False),category,supplier_cost,pid))
  flash('تم تحديث المنتج')
  return redirect('/admin#products')
 
@@ -830,25 +868,26 @@ def safka_incoming_hook(kind,token):
 @app.post('/admin/safka/sync')
 @admin_only
 def sync_safka_owner():
- # Explicit owner action only. Import to local DB, NEVER send customer orders.
- if os.getenv('SHOPY_SAFKA_READ_ENABLED') != '1':
-  flash('مزامنة صفقة: قراءة API غير مفعلة.')
-  return redirect('/admin')
+ # Owner-triggered importer. Each browser request processes exactly one page
+ # with an atomic DB transaction and next-page checkpoint.
+ wants_json='application/json' in request.headers.get('Accept','')
+ def fail(message,status=422):
+  if wants_json:return jsonify(ok=False,message=message),status
+  flash(message)
+  return redirect('/admin#integrations')
+ if os.getenv('SHOPY_SAFKA_READ_ENABLED')!='1':
+  return fail('قراءة API غير مفعلة')
  key=os.getenv('SHOPY_SAFKA_API_KEY','')
- if len(key.strip()) < 12:
-  flash('مزامنة صفقة: مفتاح API غير مهيأ.')
-  return redirect('/admin')
+ if len(key.strip())<12:
+  return fail('مفتاح API غير مهيأ')
  kind=request.form.get('kind','')
  if kind not in ('products','shipping'):
-  abort(400,'Unknown Safka sync kind')
- from safka_admin_sync import (api_page,checked_products,checked_shipping,
-                               sync_product_page,sync_shipping_snapshot)
+  abort(400)
+ from safka_admin_sync import api_page,checked_products,checked_shipping,sync_product_page,sync_shipping_snapshot
  from safka_bridge import CatalogValidationError
  from urllib.error import HTTPError,URLError
  path=os.getenv('SHOPY_SAFKA_PRODUCTS_PATH' if kind=='products' else 'SHOPY_SAFKA_SHIPPING_PATH','').strip()
- if not path:
-  flash('مزامنة صفقة: المسار الرسمي غير مضبوط.')
-  return redirect('/admin')
+ if not path:return fail('مسار صفقة الرسمي غير مضبوط')
  try:
   if kind=='products':
    with db() as conn:
@@ -856,23 +895,23 @@ def sync_safka_owner():
     page=int(saved['value']) if saved else 1
    payload,records=api_page(key,path,'products',page=page,size=50,timeout=8)
    pages,count=checked_products(payload,records,page)
-   with db() as conn:
-    result=sync_product_page(conn,records,page,pages)
-   flash('صفقة: تم حفظ '+str(count)+' منتج كمسودات غير منشورة. صفحة '+str(page)+' من '+str(pages)+
-         ('؛ انتهت دورة المنتجات.' if result['cycle_complete'] else '؛ اضغط استيراد الدفعة التالية لإكمال الباقي.'))
+   with db() as conn:result=sync_product_page(conn,records,page,pages)
+   message='تم استيراد '+str(count)+' منتج. الدفعة '+str(page)+' من '+str(pages)+'.'
+   outcome=dict(ok=True,kind=kind,imported=count,page=page,total_pages=pages,
+                next_page=result['next_page'],cycle_complete=result['cycle_complete'],message=message)
   else:
    payload,records=api_page(key,path,'shipping',page=1,size=50,timeout=8)
    rates=checked_shipping(payload,records)
-   with db() as conn:
-    result=sync_shipping_snapshot(conn,rates)
-   flash('صفقة: تم حفظ '+str(result['updated'])+
-         ' تعريفة شحن للمدن المدعومة (سعر صفقة + 10 جنيه). لم تتغير بيانات الطلبات أو الشحن اليدوي.')
+   with db() as conn:result=sync_shipping_snapshot(conn,rates)
+   message='تم حفظ '+str(result['updated'])+' مدينة بشحن صفقة + 10 جنيه.'
+   outcome=dict(ok=True,kind=kind,imported=result['updated'],message=message,cycle_complete=True)
+  if wants_json:return jsonify(outcome)
+  flash(message)
  except HTTPError as exc:
-  flash('صفقة: فشل الاتصال برمز HTTP '+str(exc.code)+'. لم تُحفظ الدفعة.')
+  return fail('فشل الاتصال بصفقة (HTTP '+str(exc.code)+'). لم تُحفظ هذه الدفعة')
  except (URLError,OSError,ValueError,TypeError,KeyError,CatalogValidationError) as exc:
-  # Avoid logging raw API errors, credentials, response bodies or customer data.
-  flash('صفقة: توقفت المزامنة بسبب بيانات غير مكتملة أو اتصال ('+type(exc).__name__+'). راجع النتيجة قبل المحاولة مجددًا.')
- return redirect('/admin')
+  return fail('توقفت المزامنة: '+type(exc).__name__+' — لا تغييرات جزئية على الدفعة')
+ return redirect('/admin#integrations')
 
 
 @app.post('/admin/safka/preview-import')

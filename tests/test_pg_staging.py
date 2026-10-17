@@ -42,7 +42,7 @@ class PGStagingOfflineTests(unittest.TestCase):
   self.assertEqual(customer_shipping_piastres(4000),5000)
  def test_staging_blocks_public_checkout_and_customer_signup(self):
   source=(ROOT/'app.py').read_text()
-  self.assertIn("request.path.startswith('/register')",source)
+  self.assertNotIn("if request.path.startswith('/register'):\n   abort(503",source)
   self.assertIn("request.path.startswith('/checkout')",source)
   self.assertIn("os.getenv('SHOPY_STAGING_OWNER_CHECKOUT') == '1'",source)
   self.assertIn("owner['role'] != 'admin'",source)

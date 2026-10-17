@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS safka_order_outbox(
  attempt_count INTEGER NOT NULL DEFAULT 0, submitted_commission_piastres BIGINT
 );
 CREATE TABLE IF NOT EXISTS safka_schema_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS product_overrides(
+ product_id BIGINT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+ title TEXT NOT NULL,description TEXT NOT NULL,category TEXT NOT NULL,
+ price BIGINT NOT NULL,options_json TEXT NOT NULL DEFAULT '{}'
+);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_checkout_key ON orders(checkout_key);
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(active,category);
 CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);
@@ -90,4 +95,5 @@ ALTER TABLE safka_shipping_rates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE safka_sync_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE safka_order_outbox ENABLE ROW LEVEL SECURITY;
 ALTER TABLE safka_schema_meta ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_overrides ENABLE ROW LEVEL SECURITY;
 COMMIT;

@@ -1,0 +1,26 @@
+name: Shopy Store Python quality checks
+on:
+  push:
+    branches:
+      - feature/customer-ready-catalog-and-safka-quality
+  pull_request:
+    branches:
+      - main
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Compile project
+        run: python -m compileall -q app.py safka_bridge.py safka_admin_sync.py catalog_quality.py safka_webhooks.py
+      - name: Run offline unit tests
+        run: python -m unittest discover -s tests -p "test_*.py"
