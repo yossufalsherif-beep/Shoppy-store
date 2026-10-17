@@ -784,7 +784,7 @@ def preview_safka_import():
   flash('معاينة صفقة: مفتاح API غير موجود.')
   return redirect('/admin')
  from safka_probe import preview_records
- from safka_bridge import normalize_product, normalize_shipping, CatalogValidationError
+ from safka_bridge import normalize_product, normalize_shipping, expand_safka_shipping, CatalogValidationError
  from urllib.error import HTTPError, URLError
  for label,var,kind,normalizer in [
   ('المنتجات','SHOPY_SAFKA_PRODUCTS_PATH','products',normalize_product),
@@ -795,6 +795,7 @@ def preview_safka_import():
    continue
   try:
    rows=preview_records(path,key,kind,timeout=8)
+   if kind=='shipping':rows=expand_safka_shipping(rows)
    valid=0; blocked=0; missing_stock=0; categories_missing=0
    for raw in rows:
     try:
