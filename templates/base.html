@@ -9,7 +9,7 @@
  {% block head %}{% endblock %}
 </head>
 <body>
- {% if staging_mode %}<div role="status" style="background:#fff3d2;color:#563b00;text-align:center;padding:12px;font-weight:700">نسخة اختبار خاصة — لا تستقبل طلبات شراء أو تسجيل عملاء حاليًا</div>{% endif %}
+ {% if staging_mode %}<div role="status" style="background:#fff3d2;color:#563b00;text-align:center;padding:12px;font-weight:700">طلبات الشراء متوقفة مؤقتًا أثناء تجهيز خدمة التوصيل — تصفح المنتجات متاح</div>{% endif %}
  <div class="topline">تسوق براحتك، وادفع عند الاستلام <span aria-hidden="true">✦</span> Shopy Store</div>
  <header class="site-header">
   <div class="wrap header-inner">
@@ -22,6 +22,6 @@
   {% with messages=get_flashed_messages() %}{% for m in messages %}<div role="status" class="notice">{{m}}</div>{% endfor %}{% endwith %}
   {% block content %}{% endblock %}
  </main>
- <footer class="site-footer"><div class="wrap footer-layout"><div><strong class="footer-brand">Shopy Store</strong><p>اختيارات بسيطة، وتجربة شراء أسهل.</p><small>BY elsherif group</small></div><div><h4>روابط سريعة</h4><a href="/">المنتجات</a><a href="/cart">سلة التسوق</a><a href="/login">الحساب</a><a href="/assistant">مساعد التسوق</a><a href="/compare">قارن المنتجات</a></div><div><h4>الطلب والدفع</h4><p>الطلبات بتتسجل مباشرة على الموقع.</p><p>الدفع عند الاستلام (COD)</p></div><div><h4>فريق الدعم</h4>{% if contact.get('support_phone') %}<p><a href="tel:{{contact.support_phone}}" dir="ltr">{{contact.support_phone}}</a></p>{% endif %}{% if contact.get('support_email') %}<p><a href="mailto:{{contact.support_email}}">{{contact.support_email}}</a></p>{% endif %}{% if not contact.get('support_email') and not contact.get('support_phone') %}<p>بيانات التواصل هتظهر بعد ما مدير المتجر يضيفها.</p>{% endif %}</div></div><div class="wrap copyright">© Shopy Store — جميع الحقوق محفوظة</div></footer>
+ <footer class="site-footer"><div class="wrap footer-layout"><div><strong class="footer-brand">Shopy Store</strong><p>اختيارات بسيطة، وتجربة شراء أسهل.</p><small>BY elsherif group</small></div><div><h4>روابط سريعة</h4><a href="/">المنتجات</a><a href="/cart">سلة التسوق</a><a href="/login">الحساب</a><a href="/assistant">مساعد التسوق</a><a href="/compare">قارن المنتجات</a></div><div><h4>الطلب والدفع</h4><p>الطلبات بتتسجل مباشرة على الموقع.</p><p>الدفع عند الاستلام (COD)</p></div><div><h4>فريق الدعم</h4>{% if contact.get('support_phone') %}<p><a href="tel:{{contact.support_phone}}" dir="ltr">{{contact.support_phone}}</a></p>{% endif %}{% if contact.get('support_email') %}<p><a href="mailto:{{contact.support_email}}">{{contact.support_email}}</a></p>{% endif %}{% if not contact.get('support_email') and not contact.get('support_phone') %}<p>يسعدنا خدمتك. ستتوفر وسائل التواصل هنا قريبًا.</p>{% endif %}</div></div><div class="wrap copyright">© Shopy Store — جميع الحقوق محفوظة</div></footer>
 </body>
 </html>
