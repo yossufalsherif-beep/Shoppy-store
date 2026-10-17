@@ -792,7 +792,7 @@ def check_safka_connection():
    flash('صفقة - '+label+': مسار القراءة الرسمي لم يُضبط بعد ('+variable+').')
    continue
   try:
-   data=safe_keys(path,key)
+   data=safe_keys(path,key,timeout=8)
    # Show field names only; never expose response values, the API key, or raw exceptions.
    fields=[str(x)[:48] for x in data.get('record_field_names',[])[:20]]
    top=[str(x)[:48] for x in data.get('top_level_fields',[])[:15]]
