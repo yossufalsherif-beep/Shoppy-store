@@ -23,9 +23,25 @@ def refresh_product(db, product, *, detail_fetch=None, force=False):
         except (TypeError,ValueError):
             pass
     detail_fetch=detail_fetch or fetch_product_detail
-    _,raw=detail_fetch(os.getenv('SHOPY_SAFKA_API_KEY','').strip(),product['supplier_product_id'])
+    try:
+        _,raw=detail_fetch(os.getenv('SHOPY_SAFKA_API_KEY','').strip(),product['supplier_product_id'])
+    except (ValueError,OSError,TypeError,KeyError) as exc:
+        reason=type(exc).__name__
+        if isinstance(exc,CatalogValidationError):reason+=': '+str(exc)
+        elif hasattr(exc,'code'):reason+=': HTTP '+str(exc.code)
+        with db() as conn:
+            conn.execute("INSERT INTO safka_schema_meta(key,value) VALUES('product_refresh_error',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                         (reason[:300],))
+        raise
     with db() as conn:
         import_products(conn,[raw],source_label='checkout-product-detail')
+        conn.execute("DELETE FROM safka_schema_meta WHERE key='product_refresh_error'")
+        properties=raw.get('properties') or []
+        summary={'property_count':len(properties),'parent_price':raw.get('sale_price'),
+                 'properties':[{'price':p.get('sale_price'),'stock':p.get('value'),
+                                'available':p.get('is_available')} for p in properties if isinstance(p,dict)]}
+        conn.execute("INSERT INTO safka_schema_meta(key,value) VALUES('product_detail_summary',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                     (json.dumps(summary),))
         return conn.execute('SELECT * FROM products WHERE id=?',(product['id'],)).fetchone()
 
 
@@ -35,7 +51,9 @@ def shipping_snapshot(key, *, read=api_page):
     expected = None
     for page in range(1, 28):
         envelope, rows = read(key, '/api/v1/public/price-list', 'shipping', page=page, size=50)
-        count = envelope.get('totalActiveGovernorates', envelope.get('itemsCount'))
+        # itemsCount counts all records, while totalActiveGovernorates excludes
+        # inactive destinations. Safka currently returns 27 records / 26 active.
+        count = envelope.get('itemsCount', envelope.get('totalActiveGovernorates'))
         if isinstance(count, bool):
             raise CatalogValidationError('Invalid governorate count')
         try:
@@ -54,7 +72,11 @@ def shipping_snapshot(key, *, read=api_page):
                 raise CatalogValidationError('Conflicting shipping rates')
             records[ident] = row
         if len(records) == expected:
-            flattened = checked_shipping({'itemsCount':expected}, list(records.values()))
+            active=[row for row in records.values() if row.get('is_active') is not False]
+            active_count=envelope.get('totalActiveGovernorates')
+            if active_count is not None and (isinstance(active_count,bool) or int(active_count)!=len(active)):
+                raise CatalogValidationError('Incomplete active governorate snapshot')
+            flattened = checked_shipping({'itemsCount':len(active)}, active)
             if any(not row.get('city_id') for row in flattened):
                 raise CatalogValidationError('Missing official city IDs')
             return flattened
