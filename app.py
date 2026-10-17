@@ -67,6 +67,26 @@ CREATE TABLE IF NOT EXISTS shipping_zones (id INTEGER PRIMARY KEY,governorate TE
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(active,category);
 CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);''')
   init_safka_schema(c)
+  c.executescript("""CREATE TABLE IF NOT EXISTS favorites(
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     PRIMARY KEY(user_id,product_id));
+  CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
+  CREATE TABLE IF NOT EXISTS product_reviews(
+     id INTEGER PRIMARY KEY,
+     product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
+     comment TEXT NOT NULL DEFAULT '',
+     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     UNIQUE(product_id,user_id),
+     CHECK(rating > 3 OR length(trim(comment))>=10));
+  CREATE INDEX IF NOT EXISTS idx_reviews_product ON product_reviews(product_id,created_at);""")
+  if os.environ.get('DATABASE_URL'):
+   c.execute('ALTER TABLE favorites ENABLE ROW LEVEL SECURITY')
+   c.execute('ALTER TABLE product_reviews ENABLE ROW LEVEL SECURITY')
   if os.environ.get('DATABASE_URL'):
    # Keep Supabase Data API anonymous/authorized roles away from merchant edits.
    c.execute('ALTER TABLE product_overrides ENABLE ROW LEVEL SECURITY')
