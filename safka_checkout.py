@@ -35,6 +35,13 @@ def refresh_product(db, product, *, detail_fetch=None, force=False):
         raise
     with db() as conn:
         import_products(conn,[raw],source_label='checkout-product-detail')
+        conn.execute("DELETE FROM safka_schema_meta WHERE key='product_refresh_error'")
+        properties=raw.get('properties') or []
+        summary={'property_count':len(properties),'parent_price':raw.get('sale_price'),
+                 'properties':[{'price':p.get('sale_price'),'stock':p.get('value'),
+                                'available':p.get('is_available')} for p in properties if isinstance(p,dict)]}
+        conn.execute("INSERT INTO safka_schema_meta(key,value) VALUES('product_detail_summary',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                     (json.dumps(summary),))
         return conn.execute('SELECT * FROM products WHERE id=?',(product['id'],)).fetchone()
 
 

@@ -49,7 +49,8 @@ def fetch_product_detail(key,product_id,timeout=6):
     envelope=json.loads(body)
     if not isinstance(envelope,dict) or envelope.get('success') is False:
         raise CatalogValidationError('Invalid product detail response')
-    record=envelope.get('data',envelope)
+    # Official Product By ID wraps the record in `product`, unlike list APIs.
+    record=envelope.get('product',envelope.get('data',envelope))
     if not isinstance(record,dict):
         raise CatalogValidationError('Invalid detail product shape')
     item=normalize_product(record)

@@ -29,4 +29,15 @@ class SafkaHookUnitTests(unittest.TestCase):
   opener.open.return_value=Reply()
   with patch('safka_webhooks._SAFE_OPENER',opener):
    with self.assertRaises(CatalogValidationError):fetch_product_detail('test-api-key','requested-id')
+ def test_official_product_wrapper_is_supported(self):
+  class Reply:
+   def __enter__(self):return self
+   def __exit__(self,*args):return False
+   def read(self,n):return b'{"product":{"_id":"requested-id","name":"Test","sale_price":100,"properties":[{"_id":"variant","value":8,"is_available":true}]}}'
+  opener=MagicMock();opener.open.return_value=Reply()
+  with patch('safka_webhooks._SAFE_OPENER',opener):
+   normalized,raw=fetch_product_detail('offline-test-key','requested-id')
+  self.assertEqual(normalized['supplier_id'],'requested-id')
+  self.assertEqual(normalized['stock'],8)
+  self.assertEqual(raw['properties'][0]['_id'],'variant')
 if __name__=='__main__':unittest.main()
