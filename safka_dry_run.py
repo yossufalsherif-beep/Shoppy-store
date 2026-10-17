@@ -42,6 +42,7 @@ def prepare_dry_run(conn, order_id):
         'mode': 'DRY_RUN_ONLY',
         'is_verified_safka_create_order_payload': False,
         'shipping_pricing_document_id':raw.get('shipping_pricing_document_id'),
+        'supplier_city_id':raw.get('supplier_city_id'),
         'order_reference': raw['merchant_reference'],
         'customer_name': raw['customer'],
         'customer_phone': raw['phone'],

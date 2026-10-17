@@ -6,6 +6,7 @@
     "client_phone1": "customer_phone",
     "client_address": "address",
     "shipping_governorate": "shipping_pricing_document_id",
+    "city": "supplier_city_id",
     "commission": "requested_commission_egp",
     "total": "total_to_collect_egp",
     "note": "order_reference"

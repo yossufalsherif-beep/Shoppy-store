@@ -21,9 +21,9 @@ class SafkaBuyerFlowTests(unittest.TestCase):
        ('منتج صفقة','safka-test','وصف',15000,'',1,'{}','إلكترونيات',
         10000,'safka','675a00000000000000000001',None,1,1,'2026-10-17T16:00:00+00:00'))
    conn.execute("""INSERT INTO safka_shipping_rates(
-        governorate,city,area,supplier_fee,fee,updated_at,pricing_document_id)
-        VALUES(?,?,?,?,?,?,?)""",
-        ('الجيزة','6 أكتوبر','',8500,9500,'2026-10-17T16:00:00+00:00','675a00000000000000000003'))
+        governorate,city,area,supplier_fee,fee,updated_at,pricing_document_id,city_id)
+        VALUES(?,?,?,?,?,?,?,?)""",
+        ('الجيزة','6 أكتوبر','',8500,9500,'2026-10-17T16:00:00+00:00','675a00000000000000000003','336'))
  def tearDown(self):
   self.db_patch.stop()
   self.tmp.cleanup()
@@ -34,6 +34,7 @@ class SafkaBuyerFlowTests(unittest.TestCase):
   self.client.post('/register',data={'csrf':self.token(),'email':'test-buyer@shopy.test','password':'safe-long-password'})
   with store.db() as c:pid=c.execute("SELECT id FROM products WHERE source='safka'").fetchone()['id']
   with patch.object(store,'supplier_checkout_live',return_value=True),\
+       patch('safka_auto_orders.verify_checkout_products',return_value={}),\
        patch('safka_auto_orders.submit_saved_order_once') as send:
    add=self.client.post('/cart/add/'+str(pid),data={'csrf':self.token()})
    self.assertEqual(add.status_code,302)
@@ -42,6 +43,8 @@ class SafkaBuyerFlowTests(unittest.TestCase):
       'governorate':'الجيزة','city':'6 أكتوبر','area':'الحي السابع',
       'address':'شارع وهمي رقم 8 عمارة 4'
    }
+   payload['quote_token']=self.client.get('/api/shipping-quote',query_string={
+      'governorate':payload['governorate'],'city':payload['city'],'area':payload['area']}).json['quote_token']
    done=self.client.post('/checkout',data=payload)
    self.assertEqual(done.status_code,302)
    self.assertIn('/order/success/',done.headers['Location'])

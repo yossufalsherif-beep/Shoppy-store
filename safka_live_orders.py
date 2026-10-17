@@ -37,6 +37,7 @@ SOURCE_FIELDS = frozenset({
     'address', 'customer_products_egp', 'customer_shipping_egp',
     'supplier_shipping_egp', 'total_to_collect_egp',
     'shipping_pricing_document_id', 'requested_commission_egp',
+    'supplier_city_id',
 })
 ITEM_FIELDS = frozenset({
     'supplier_product_id', 'supplier_product_code', 'quantity',
@@ -64,6 +65,7 @@ def canonical_order(preview, *, commission_egp=None, property_ids=None):
         'total_to_collect_egp': _as_egp(preview['total_to_collect_piastres']),
     }
     result['shipping_pricing_document_id'] = preview.get('shipping_pricing_document_id')
+    result['supplier_city_id'] = preview.get('supplier_city_id')
     result['requested_commission_egp'] = commission_egp
     property_ids = property_ids or {}
     result['items'] = [{
@@ -132,7 +134,7 @@ def build_payload(canonical, contract):
     contract = validate_contract(contract)
     if not canonical['items']:
         raise OrderContractError('No supplier products')
-    if any(item['choices'] for item in canonical['items']):
+    if any(item['choices'] and not item.get('supplier_property_id') for item in canonical['items']):
         # Safka option text must be mapped to a verified supplier variant ID.
         # Never place an order with unverified size/color selection.
         raise OrderContractError('Provider variant ID mapping is not verified; manual order review required')
@@ -147,6 +149,10 @@ def build_payload(canonical, contract):
         ident = canonical.get('shipping_pricing_document_id')
         if not isinstance(ident, str) or not re.fullmatch(r'[A-Za-z0-9]{12,100}', ident):
             raise OrderContractError('Missing verified price-list document ID for shipping')
+    if 'supplier_city_id' in contract['fields'].values():
+        ident=canonical.get('supplier_city_id')
+        if not isinstance(ident,str) or not re.fullmatch(r'[0-9]{1,20}',ident):
+            raise OrderContractError('Missing official supplier city ID')
     if 'requested_commission_egp' in contract['fields'].values():
         amount = canonical.get('requested_commission_egp')
         if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not 0 <= amount <= canonical['total_to_collect_egp']:

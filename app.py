@@ -6,6 +6,7 @@ from functools import wraps
 from flask import Flask, request, redirect, session, render_template, abort, flash, jsonify
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from catalog_quality import clean_description
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
 from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, CatalogValidationError
@@ -218,6 +219,10 @@ def product(slug):
   p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(slug,)).fetchone()
   if not p:abort(404)
   others=c.execute("SELECT * FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
+ if p['source']=='safka' and os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1':
+  from safka_checkout import refresh_product
+  try:p=refresh_product(db,p)
+  except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):pass
  with db() as c:
   media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
   user=current_user()
@@ -305,7 +310,21 @@ def quote_shipping():
   fn=quote_safka_shipping if provider_cart else shipping_quote
   quoted=fn(conn,request.args.get('governorate',''),request.args.get('city',''),request.args.get('area',''))
  if quoted is None:return jsonify(ok=False,message='الشحن غير متاح للعنوان المحدد'),404
- return jsonify(ok=True,shipping_piastres=quoted[0])
+ quote_data=[request.args.get(k,'').strip() for k in ('governorate','city','area')]
+ quote_data += [quoted[0],sum(p['price']*q for p,q,_,_ in rows),session.get('cart',{})]
+ ticket=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').dumps(quote_data)
+ return jsonify(ok=True,shipping_piastres=quoted[0],quote_token=ticket)
+
+@app.get('/api/shipping-governorates')
+def safka_shipping_governorates():
+ from safka_checkout import ensure_shipping
+ try:
+  ensure_shipping(db)
+ except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):
+  return jsonify(ok=False,message='تعذر تحميل مناطق التوصيل حاليًا. حاول مرة أخرى بعد قليل.'),503
+ with db() as conn:
+  rates=conn.execute('SELECT DISTINCT governorate FROM safka_shipping_rates ORDER BY governorate').fetchall()
+ return jsonify(ok=True,governorates=[r['governorate'] for r in rates])
 
 @app.get('/api/shipping-cities')
 def safka_shipping_cities():
@@ -327,9 +346,17 @@ def checkout():
  if not session.get('checkout_key'):session['checkout_key']=secrets.token_urlsafe(24)
  supplier_cart=any(p['source']=='safka' for p,_,_,_ in rows)
  mixed_cart=supplier_cart and any(p['source']!='safka' for p,_,_,_ in rows)
+ shipping_error=False
+ if supplier_cart and os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1':
+  from safka_checkout import ensure_shipping
+  try:ensure_shipping(db)
+  except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):
+   shipping_error=True
+   flash('تعذر تحديث مناطق وأسعار التوصيل الآن. حاول مرة أخرى بعد قليل.')
  with db() as c:
   rates=c.execute('SELECT DISTINCT governorate FROM safka_shipping_rates ORDER BY governorate').fetchall() if supplier_cart else c.execute('SELECT * FROM shipping ORDER BY governorate').fetchall()
  if request.method=='POST':
+  if shipping_error:return redirect('/checkout')
   if len(rows)!=len(session.get('cart',{})):
    flash('السلة فيها منتج لم يعد متاحًا أو بياناته قديمة. راجع السلة قبل تأكيد الطلب.')
    return redirect('/cart')
@@ -340,6 +367,18 @@ def checkout():
    return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
                         checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
   key=session['checkout_key']
+  checked_details={}
+  if supplier_cart and supplier_checkout_live():
+   from safka_auto_orders import verify_checkout_products
+   try:
+    checked_details=verify_checkout_products(rows)
+   except (OrderContractError,CatalogValidationError,ValueError,OSError,TypeError,KeyError):
+    from safka_checkout import refresh_product
+    for product,_,_,_ in rows:
+     try:refresh_product(db,product,force=True)
+     except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):pass
+    flash('تعذر تأكيد توفر أحد المنتجات أو تغيّر سعره. لم يتم إرسال طلب؛ راجع السلة وحاول مرة أخرى.')
+    return redirect('/cart')
   try:
    with db() as c:
     c.execute('BEGIN IMMEDIATE')
@@ -348,6 +387,13 @@ def checkout():
     if mixed_cart:raise ValueError('قسم الطلب: لا يمكن شحن منتجات صفقة ومنتجاتك اليدوية معًا حاليًا')
     rate=(quote_safka_shipping if supplier_cart else shipping_quote)(c,gov,city,area)
     if rate is None:raise ValueError('الشحن غير متاح للعنوان المحدد حاليًا. اختر منطقة مدعومة.')
+    if supplier_cart and supplier_checkout_live():
+     try:
+      quoted=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').loads(request.form.get('quote_token',''),max_age=1800)
+     except (BadSignature,SignatureExpired):
+      raise ValueError('حدّث تكلفة التوصيل قبل تأكيد الطلب؛ لم يتم إرسال أي طلب.') from None
+     expected=[gov,city,area,rate[0],sum(p['price']*q for p,q,_,_ in rows),session.get('cart',{})]
+     if quoted!=expected:raise ValueError('تغيّرت السلة أو تكلفة الشحن. راجع الإجمالي وأكد الطلب مرة أخرى.')
     fresh=[]
     quantities_by_product={}
     for p,q,choices,_ in rows:
@@ -362,10 +408,18 @@ def checkout():
     total=sum(p['price']*q for p,q,_ in fresh)+rate[0];ref='SH-'+secrets.token_hex(6).upper()
     full_address=' | '.join((city,area,address))
     pricing_doc=(shipping_pricing_document_id(c,gov,city,area,rate[0],rate[1]) if supplier_cart else None)
+    city_row=(c.execute('SELECT city_id FROM safka_shipping_rates WHERE governorate=? AND city=? AND area=?',
+                       (gov,city,'')).fetchone() if supplier_cart else None)
+    supplier_city_id=city_row['city_id'] if city_row else None
+    if supplier_cart and supplier_checkout_live() and (not pricing_doc or not supplier_city_id):
+     raise ValueError('بيانات التوصيل غير مكتملة حاليًا. لم يتم إرسال الطلب.')
     cur=c.execute('''INSERT INTO orders(reference,user_id,customer,phone,governorate,address,shipping_fee,total,
-       checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)''',(ref,session.get('uid'),name,phone,gov,full_address,rate[0],total,key,
-       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc))
+       checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id,safka_city_id)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,rate[0],total,key,
+       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id))
+    if cur.rowcount==0:
+     existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
+     return redirect('/order/success/'+existing['reference'])
     for p,q,choices in fresh:
      c.execute('INSERT INTO order_items(order_id,product_id,title,unit_price,quantity,variant_json,unit_cost) VALUES(?,?,?,?,?,?,?)',(cur.lastrowid,p['id'],p['title'],p['price'],q,json.dumps(choices,ensure_ascii=False),p['supplier_cost']))
     # Stage Safka order in the same transaction; submission requires verified API schema.
@@ -388,14 +442,13 @@ def checkout():
     c.commit()
    if supplier_cart and supplier_checkout_live():
     from safka_auto_orders import submit_saved_order_once
-    from safka_live_orders import OrderContractError
     try:
-     submit_saved_order_once(db,cur.lastrowid)
+     submit_saved_order_once(db,cur.lastrowid,detail_fetch=lambda key,pid:checked_details[pid])
     except (OrderContractError,CatalogValidationError,ValueError,OSError,KeyError,TypeError) as exc:
      # Customer order is already saved. Preflight failures are NOT supplier acceptance.
      # Never leak the supplier API key, customer PII or transport response.
      with db() as conn:
-      conn.execute("""UPDATE safka_order_outbox SET error=?,updated_at=CURRENT_TIMESTAMP
+      conn.execute("""UPDATE safka_order_outbox SET status='preflight_failed',error=?,updated_at=CURRENT_TIMESTAMP
            WHERE order_id=? AND status='awaiting_provider_configuration'""",
            (type(exc).__name__[:80],cur.lastrowid))
   except ValueError as exc:
@@ -409,7 +462,7 @@ def checkout():
 
 @app.route('/order/success/<ref>')
 def order_success(ref):
- if ref not in session.get('my_order_refs',[]):abort(404)
+ if not current_user():abort(404)
  with db() as c:
   order=c.execute('SELECT reference,total,shipping_fee,user_id,id FROM orders WHERE reference=?',(ref,)).fetchone()
   if not order:abort(404)
