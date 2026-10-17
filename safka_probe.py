@@ -16,6 +16,26 @@ from safka_import import _extract_list, _SAFE_OPENER
 load_dotenv(Path(__file__).resolve().parent / '.env')
 
 
+def preview_records(path, key, kind, timeout=8):
+    """Read a two-item sample, validate provider envelope, never write."""
+    if kind not in ('products','shipping'):
+        raise ValueError('Unsupported preview kind')
+    if not path.startswith('/api/v1/public/') or '?' in path or '#' in path or '//' in path:
+        raise ValueError('Invalid Safka API path')
+    query = urllib.parse.urlencode({'page':1,'size':2})
+    req = urllib.request.Request('https://api.safka-eg.com' + path + '?' + query,
+                                 headers={'api-safka-key':key,'Accept':'application/json',
+                                          'User-Agent':'ShopyStoreLocalIntegration/1.0'},method='GET')
+    with _SAFE_OPENER.open(req, timeout=timeout) as response:
+        payload = json.load(response)
+    if isinstance(payload,dict) and payload.get('success') is False:
+        raise ValueError('Safka reported an API error')
+    records = _extract_list(payload, kind)
+    if not isinstance(records,list) or len(records)>2:
+        raise ValueError('Unexpected response size')
+    return records
+
+
 def safe_keys(path, key, timeout=20):
     if not path.startswith('/api/v1/public/') or '?' in path or '#' in path or '//' in path:
         raise ValueError('Invalid Safka public read endpoint path')
