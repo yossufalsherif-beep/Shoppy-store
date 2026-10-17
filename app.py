@@ -848,25 +848,26 @@ def safka_incoming_hook(kind,token):
 @app.post('/admin/safka/sync')
 @admin_only
 def sync_safka_owner():
- # Explicit owner action only. Import to local DB, NEVER send customer orders.
- if os.getenv('SHOPY_SAFKA_READ_ENABLED') != '1':
-  flash('مزامنة صفقة: قراءة API غير مفعلة.')
-  return redirect('/admin')
+ # Owner-triggered importer. Each browser request processes exactly one page
+ # with an atomic DB transaction and next-page checkpoint.
+ wants_json='application/json' in request.headers.get('Accept','')
+ def fail(message,status=422):
+  if wants_json:return jsonify(ok=False,message=message),status
+  flash(message)
+  return redirect('/admin#integrations')
+ if os.getenv('SHOPY_SAFKA_READ_ENABLED')!='1':
+  return fail('قراءة API غير مفعلة')
  key=os.getenv('SHOPY_SAFKA_API_KEY','')
- if len(key.strip()) < 12:
-  flash('مزامنة صفقة: مفتاح API غير مهيأ.')
-  return redirect('/admin')
+ if len(key.strip())<12:
+  return fail('مفتاح API غير مهيأ')
  kind=request.form.get('kind','')
  if kind not in ('products','shipping'):
-  abort(400,'Unknown Safka sync kind')
- from safka_admin_sync import (api_page,checked_products,checked_shipping,
-                               sync_product_page,sync_shipping_snapshot)
+  abort(400)
+ from safka_admin_sync import api_page,checked_products,checked_shipping,sync_product_page,sync_shipping_snapshot
  from safka_bridge import CatalogValidationError
  from urllib.error import HTTPError,URLError
  path=os.getenv('SHOPY_SAFKA_PRODUCTS_PATH' if kind=='products' else 'SHOPY_SAFKA_SHIPPING_PATH','').strip()
- if not path:
-  flash('مزامنة صفقة: المسار الرسمي غير مضبوط.')
-  return redirect('/admin')
+ if not path:return fail('مسار صفقة الرسمي غير مضبوط')
  try:
   if kind=='products':
    with db() as conn:
@@ -874,23 +875,23 @@ def sync_safka_owner():
     page=int(saved['value']) if saved else 1
    payload,records=api_page(key,path,'products',page=page,size=50,timeout=8)
    pages,count=checked_products(payload,records,page)
-   with db() as conn:
-    result=sync_product_page(conn,records,page,pages)
-   flash('صفقة: تم حفظ '+str(count)+' منتج كمسودات غير منشورة. صفحة '+str(page)+' من '+str(pages)+
-         ('؛ انتهت دورة المنتجات.' if result['cycle_complete'] else '؛ اضغط استيراد الدفعة التالية لإكمال الباقي.'))
+   with db() as conn:result=sync_product_page(conn,records,page,pages)
+   message='تم استيراد '+str(count)+' منتج. الدفعة '+str(page)+' من '+str(pages)+'.'
+   outcome=dict(ok=True,kind=kind,imported=count,page=page,total_pages=pages,
+                next_page=result['next_page'],cycle_complete=result['cycle_complete'],message=message)
   else:
    payload,records=api_page(key,path,'shipping',page=1,size=50,timeout=8)
    rates=checked_shipping(payload,records)
-   with db() as conn:
-    result=sync_shipping_snapshot(conn,rates)
-   flash('صفقة: تم حفظ '+str(result['updated'])+
-         ' تعريفة شحن للمدن المدعومة (سعر صفقة + 10 جنيه). لم تتغير بيانات الطلبات أو الشحن اليدوي.')
+   with db() as conn:result=sync_shipping_snapshot(conn,rates)
+   message='تم حفظ '+str(result['updated'])+' مدينة بشحن صفقة + 10 جنيه.'
+   outcome=dict(ok=True,kind=kind,imported=result['updated'],message=message,cycle_complete=True)
+  if wants_json:return jsonify(outcome)
+  flash(message)
  except HTTPError as exc:
-  flash('صفقة: فشل الاتصال برمز HTTP '+str(exc.code)+'. لم تُحفظ الدفعة.')
+  return fail('فشل الاتصال بصفقة (HTTP '+str(exc.code)+'). لم تُحفظ هذه الدفعة')
  except (URLError,OSError,ValueError,TypeError,KeyError,CatalogValidationError) as exc:
-  # Avoid logging raw API errors, credentials, response bodies or customer data.
-  flash('صفقة: توقفت المزامنة بسبب بيانات غير مكتملة أو اتصال ('+type(exc).__name__+'). راجع النتيجة قبل المحاولة مجددًا.')
- return redirect('/admin')
+  return fail('توقفت المزامنة: '+type(exc).__name__+' — لا تغييرات جزئية على الدفعة')
+ return redirect('/admin#integrations')
 
 
 @app.post('/admin/safka/preview-import')
