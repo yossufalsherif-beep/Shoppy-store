@@ -787,29 +787,79 @@ def update_contact():
  flash('تم حفظ معلومات الدعم')
  return redirect('/admin#integrations')
 
-@app.post('/compare/add/<int:pid>')
-def compare_add(pid):
- with db() as conn:p=conn.execute('SELECT id FROM products WHERE id=? AND active=1',(pid,)).fetchone()
- if p is None:abort(404)
- selected=[int(x) for x in session.get('compare_ids',[]) if str(x).isdigit()]
- if pid not in selected:
-  if len(selected)>=3:flash('يمكن مقارنة 3 منتجات كحد أقصى')
-  else:selected.append(pid)
- session['compare_ids']=selected
- return redirect(request.referrer if request.referrer and request.referrer.startswith(request.host_url) else '/compare')
-
-@app.post('/compare/remove/<int:pid>')
-def compare_remove(pid):
- session['compare_ids']=[int(x) for x in session.get('compare_ids',[]) if str(x).isdigit() and int(x)!=pid]
- return redirect('/compare')
-
-@app.get('/compare')
-def compare_view():
- ids=[int(x) for x in session.get('compare_ids',[]) if str(x).isdigit()][:3]
+@app.post('/favorites/toggle/<int:pid>')
+def toggle_favorite(pid):
+ user=current_user()
+ if not user:
+  flash('سجل دخولك علشان تحفظ المنتجات في المفضلة وتلاقيها على حسابك.')
+  return redirect('/login')
+ back=safe_back_url()
  with db() as conn:
-  products=[conn.execute('SELECT * FROM products WHERE id=? AND active=1',(pid,)).fetchone() for pid in ids]
- products=[p for p in products if p is not None]
- return render_template('compare.html',products=products)
+  p=conn.execute("""SELECT id FROM products WHERE id=? AND
+    (active=1 OR (source='safka' AND supplier_listed=1))""",(pid,)).fetchone()
+  if not p:abort(404)
+  old=conn.execute('SELECT 1 FROM favorites WHERE user_id=? AND product_id=?',
+                   (user['id'],pid)).fetchone()
+  if old:
+   conn.execute('DELETE FROM favorites WHERE user_id=? AND product_id=?',(user['id'],pid))
+   flash('اتشال من المفضلة')
+  else:
+   conn.execute("""INSERT INTO favorites(user_id,product_id) VALUES(?,?)
+                ON CONFLICT(user_id,product_id) DO NOTHING""",(user['id'],pid))
+   flash('اتضاف للمفضلة')
+ return redirect(back)
+
+@app.get('/favorites')
+def favorites():
+ user=current_user()
+ if not user:
+  flash('سجل دخولك علشان تفتح قائمة المفضلة الخاصة بيك.')
+  return redirect('/login')
+ with db() as conn:
+  items=conn.execute("""SELECT p.* FROM products p
+      JOIN favorites f ON f.product_id=p.id
+      WHERE f.user_id=? AND (p.active=1 OR (p.source='safka' AND p.supplier_listed=1))
+      ORDER BY f.created_at DESC,p.id DESC""",(user['id'],)).fetchall()
+  fav_ids=customer_favorite_ids(conn,user)
+  ratings_map=customer_product_rating_map(conn)
+ return render_template('favorites.html',items=items,fav_ids=fav_ids,ratings_map=ratings_map)
+
+@app.post('/products/<int:pid>/review')
+def submit_product_review(pid):
+ user=current_user()
+ if not user:
+  flash('سجل دخولك علشان تقيّم المنتج.')
+  return redirect('/login')
+ raw=request.form.get('rating','')
+ comment=request.form.get('comment','').strip()
+ if raw not in ('1','2','3','4','5'):
+  flash('اختار تقييم من نجمة إلى خمس نجوم.')
+  return redirect('/products/'+request.form.get('slug',''))
+ rating=int(raw)
+ if rating<=3 and len(comment)<10:
+  flash('لو تقييمك 3 نجوم أو أقل، اكتب سبب التقييم (10 حروف على الأقل).')
+  return redirect('/products/'+request.form.get('slug',''))
+ if len(comment)>1200:
+  flash('التعليق طويل جدًا؛ الحد الأقصى 1200 حرف.')
+  return redirect('/products/'+request.form.get('slug',''))
+ with db() as conn:
+  p=conn.execute("""SELECT id,slug FROM products WHERE id=? AND
+    (active=1 OR (source='safka' AND supplier_listed=1))""",(pid,)).fetchone()
+  if not p:abort(404)
+  # One editable review per signed-in customer per product.
+  conn.execute("""INSERT INTO product_reviews(product_id,user_id,rating,comment)
+     VALUES(?,?,?,?)
+     ON CONFLICT(product_id,user_id) DO UPDATE SET rating=excluded.rating,
+     comment=excluded.comment,updated_at=CURRENT_TIMESTAMP""",
+     (pid,user['id'],rating,comment))
+ flash('شكرًا على رأيك! اتسجل تقييمك للمنتج.')
+ return redirect('/products/'+p['slug']+'#reviews')
+
+# Old comparison links redirect to the new favorites experience; no compare UI.
+@app.get('/compare')
+def legacy_compare():
+ return redirect('/favorites',code=302)
+
 
 # Transparent, rule-based guided finder. Never invent items or call an unconfigured AI provider.
 AR_SYNONYMS={
@@ -1053,7 +1103,7 @@ def check_safka_connection():
 def integrations_redirect():return redirect('/admin#integrations')
 
 @app.route('/robots.txt')
-def robots():return app.response_class('User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /checkout\nDisallow: /cart\nDisallow: /compare\nDisallow: /assistant\nDisallow: /order\n',mimetype='text/plain')
+def robots():return app.response_class('User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /checkout\nDisallow: /cart\nDisallow: /favorites\nDisallow: /assistant\nDisallow: /order\n',mimetype='text/plain')
 @app.route('/sitemap.xml')
 def sitemap():
  from xml.sax.saxutils import escape
