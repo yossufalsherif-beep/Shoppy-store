@@ -902,6 +902,16 @@ def sync_safka_owner():
  if len(key.strip())<12:
   return fail('مفتاح API غير مهيأ')
  kind=request.form.get('kind','')
+ if kind=='restart-products':
+  # Owner starts a fresh full-catalog scan from page one.
+  with db() as conn:
+   for k,v in [('safka_admin_next_page','1'),('safka_cycle_generation',''),('safka_cycle_total_pages','')]:
+    conn.execute("""INSERT INTO store_settings(key,value) VALUES(?,?)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value""",(k,v))
+  result=dict(ok=True,kind=kind,message='بدأ تحديث الكتالوج الكامل من أول صفحة')
+  if wants_json:return jsonify(result)
+  flash(result['message'])
+  return redirect('/admin#integrations')
  if kind not in ('products','shipping'):
   abort(400)
  from safka_admin_sync import api_page,checked_products,checked_shipping,sync_product_page,sync_shipping_snapshot
@@ -919,7 +929,8 @@ def sync_safka_owner():
    with db() as conn:result=sync_product_page(conn,records,page,pages)
    message='تم استيراد '+str(count)+' منتج. الدفعة '+str(page)+' من '+str(pages)+'.'
    outcome=dict(ok=True,kind=kind,imported=count,page=page,total_pages=pages,
-                next_page=result['next_page'],cycle_complete=result['cycle_complete'],message=message)
+                next_page=result['next_page'],cycle_complete=result['cycle_complete'],
+                archived=result['archived'],message=message)
   else:
    payload,records=api_page(key,path,'shipping',page=1,size=50,timeout=8)
    rates=checked_shipping(payload,records)
