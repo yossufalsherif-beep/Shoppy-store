@@ -384,8 +384,10 @@ def logout():session.clear();return redirect('/')
 def account():
  u=current_user()
  if not u:return redirect('/login')
- with db() as c:orders=c.execute('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC',(u['id'],)).fetchall()
- return render_template('account.html',orders=orders)
+ with db() as c:
+  orders=c.execute('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 100',(u['id'],)).fetchall()
+  details={o['id']:c.execute('SELECT title,quantity,unit_price FROM order_items WHERE order_id=?',(o['id'],)).fetchall() for o in orders}
+ return render_template('account.html',orders=orders,details=details)
 @app.get('/admin/safka/order/<int:oid>/preview')
 @admin_only
 def preview_safka_order(oid):
