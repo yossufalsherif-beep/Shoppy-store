@@ -2,10 +2,13 @@
 <html lang="ar" dir="rtl">
 <head>
  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
- <meta name="theme-color" content="#fafaf8"><meta name="description" content="Shoppy Store — اختار منتجاتك واطلب بسهولة، مع الدفع عند الاستلام.">
+ <meta name="theme-color" content="#087887"><meta name="description" content="Shoppy Store — اختار منتجاتك واطلب بسهولة، مع الدفع عند الاستلام.">
  {% if request.path.startswith('/admin') or request.path.startswith('/account') or request.path.startswith('/checkout') or request.path.startswith('/order') or request.path.startswith('/cart') or request.path.startswith('/favorites') or request.path.startswith('/assistant') %}<meta name="robots" content="noindex,nofollow">{% endif %}
  <title>{% block title %}Shoppy Store — تسوق ببساطة{% endblock %}</title>
  <link rel="stylesheet" href="{{url_for('static',filename='style.css',v=asset_version)}}">
+ <link rel="icon" href="{{url_for('static',filename='brand/favicon.ico',v=asset_version)}}" sizes="16x16 32x32 48x48">
+ <link rel="icon" type="image/png" sizes="192x192" href="{{url_for('static',filename='brand/shoppy-icon-192.png',v=asset_version)}}">
+ <link rel="apple-touch-icon" sizes="180x180" href="{{url_for('static',filename='brand/apple-touch-icon.png',v=asset_version)}}">
  {% block head %}{% endblock %}
 </head>
 <body>
@@ -13,7 +16,7 @@
  <div class="topline">تسوق براحتك، وادفع عند الاستلام <span aria-hidden="true">✦</span> Shoppy Store</div>
  <header class="site-header">
   <div class="wrap header-inner">
-   <a href="/" class="brand" aria-label="Shoppy Store - الرئيسية"><span class="brand-mark">S</span><span class="brand-type"><strong>Shoppy<span>Store</span></strong><small>BY elsherif group</small></span></a>
+   <a href="/" class="brand" aria-label="Shoppy Store - الرئيسية"><img class="brand-logo" src="{{url_for('static',filename='brand/shoppy-logo.webp',v=asset_version)}}" alt="Shoppy Store" width="150" height="75" fetchpriority="high"><span class="brand-signature">BY elsherif group</span></a>
    <nav class="main-nav" aria-label="القائمة الرئيسية"><a href="/" class="nav-link">الرئيسية</a><a href="/#catalog" class="nav-link">المنتجات</a><a href="/#contact" class="nav-link contact-nav">اتصل بنا</a><a href="/favorites" class="nav-link">المفضلة ♥</a></nav>
    <div class="header-actions"><a class="header-action" href="{{'/admin' if user and user.role=='admin' else '/account' if user else '/login'}}" aria-label="حسابي"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4.5 21a7.5 7.5 0 0 1 15 0"/></svg><span class="hide-mobile">{{'لوحة التحكم' if user and user.role=='admin' else 'حسابي' if user else 'دخول'}}</span></a><a class="header-action" href="/favorites" aria-label="المنتجات المفضلة"><svg viewBox="0 0 24 24"><path d="M20.8 4.8a5.5 5.5 0 0 0-7.8 0L12 5.9l-1.1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.4a5.5 5.5 0 0 0 0-7.8z"/></svg><span class="hide-mobile">المفضلة</span></a><a class="header-action cart-link" href="/cart" aria-label="سلة التسوق"><svg viewBox="0 0 24 24"><path d="M3 4h2l2.2 11.5h11L21 8H6"/><circle cx="9" cy="20" r="1"/><circle cx="18" cy="20" r="1"/></svg><span class="hide-mobile">السلة</span><span class="cart-badge">{{cart_count}}</span></a></div>
   </div>
