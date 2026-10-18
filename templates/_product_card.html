@@ -1,6 +1,6 @@
 <article class="product-card" data-product-id="{{item.id}}">
  <div class="product-cover"><a class="product-cover-link" href="/products/{{item.slug}}" aria-label="عرض {{item.title}}">
- {% if item.image %}<img src="{{item.image}}" alt="{{item.title}}" loading="lazy" decoding="async" width="360" height="360">{% else %}<div class="product-fallback"><span class="fallback-logo">S</span><span>Shoppee Store</span></div>{% endif %}</a>
+ {% if item.image %}<img src="{{item.image}}" alt="{{item.title}}" loading="lazy" decoding="async" width="360" height="360">{% else %}<div class="product-fallback"><span class="fallback-logo">S</span><span>Shoppy Store</span></div>{% endif %}</a>
  <span class="product-stock-badge {{'in-stock' if can_order(item) else 'out-stock'}}">{{'متوفر للطلب' if can_order(item) else 'غير متاح حاليًا'}}</span>
  <form class="card-heart-form" method="post" action="/favorites/toggle/{{item.id}}" data-async="favorite"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="return_to" value="{{request.full_path if request.query_string else request.path}}">
  <button class="favorite-heart {{'is-favorite' if item.id in fav_ids else ''}}" type="submit" aria-pressed="{{'true' if item.id in fav_ids else 'false'}}" aria-label="{{'إزالة من المفضلة' if item.id in fav_ids else 'إضافة إلى المفضلة'}}: {{item.title}}" title="المفضلة"><span data-heart-symbol aria-hidden="true">{{'♥' if item.id in fav_ids else '♡'}}</span></button></form></div>

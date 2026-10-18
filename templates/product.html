@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}{{p.title}} — Shoppee Store{% endblock %}
+{% block title %}{{p.title}} — Shoppy Store{% endblock %}
 {% block head %}
 <link rel="canonical" href="{{request.url_root.rstrip('/')}}/products/{{p.slug}}">
 <meta property="og:title" content="{{p.title}}">
@@ -13,7 +13,7 @@
  <div class="main-photo gallery-main" id="mediaStage" aria-label="معرض صور المنتج">
   {% if gallery and gallery[0].kind=='image' %}<img id="activeImage" src="{{gallery[0].path}}" alt="{{p.title}}" loading="eager">
   {% elif p.image %}<img id="activeImage" src="{{p.image}}" alt="{{p.title}}" loading="eager">
-  {% else %}<div class="product-fallback large"><span class="fallback-logo">S</span><span>Shoppee Store</span></div>{% endif %}
+  {% else %}<div class="product-fallback large"><span class="fallback-logo">S</span><span>Shoppy Store</span></div>{% endif %}
  </div>
  {% if gallery|length > 1 %}
  <div class="gallery-controls">
@@ -33,7 +33,7 @@
  </div>{% endif %}
  </div>
  <div class="product-info">
-  <span class="pill">Shoppee Store</span>
+  <span class="pill">Shoppy Store</span>
   {% if p.source!='safka' or stock_ready %}<span class="stock-tag in-stock">متوفر</span>
   {% elif p.supplier_available is not none and not p.supplier_available %}<span class="stock-tag out-stock">غير متوفر حاليًا</span>
   {% elif p.supplier_available is not none and p.supplier_available %}<span class="stock-tag supplier-listing">متوفر للطلب</span>
@@ -70,7 +70,7 @@
 </section>
 <section id="reviews" class="catalog-section reviews-section" aria-labelledby="reviews-title">
  <div class="section-heading"><div><span class="eyebrow">تجارب العملاء</span>
-  <h2 id="reviews-title">تقييمات المنتج</h2><p>آراء عملاء Shoppee Store المسجلين على الموقع.</p></div></div>
+  <h2 id="reviews-title">تقييمات المنتج</h2><p>آراء عملاء Shoppy Store المسجلين على الموقع.</p></div></div>
  <div class="reviews-layout">
   <div class="panel review-form-panel">
    <h3>{{'تعديل تقييمك' if mine else 'اكتب تقييمك للمنتج'}}</h3>
@@ -102,7 +102,7 @@
    {% for review in reviews %}
    <article class="review-item">
     <div class="review-item-head">
-     <strong>عميل Shoppee Store</strong><span class="review-stars" aria-label="{{review.rating}} من 5 نجوم">
+     <strong>عميل Shoppy Store</strong><span class="review-stars" aria-label="{{review.rating}} من 5 نجوم">
       {% for star in range(5) %}<span aria-hidden="true">{{'★' if star<review.rating else '☆'}}</span>{% endfor %}
      </span>
     </div>
