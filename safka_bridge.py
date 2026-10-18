@@ -297,6 +297,10 @@ def init_safka_schema(conn):
     outbox_cols = {r['name'] for r in conn.execute('PRAGMA table_info(safka_order_outbox)')}
     if 'submitted_commission_piastres' not in outbox_cols:
         conn.execute('ALTER TABLE safka_order_outbox ADD COLUMN submitted_commission_piastres INTEGER')
+    for column in ('supplier_status','supplier_status_updated_at'):
+        if column not in outbox_cols:
+            conn.execute('ALTER TABLE safka_order_outbox ADD COLUMN '+column+' TEXT')
+    conn.execute('CREATE INDEX IF NOT EXISTS idx_safka_order_provider_id ON safka_order_outbox(supplier_order_id)')
     # One-time correction for products imported by V4.1 (nearest ten).
     # Never update order_items / orders: those are immutable price snapshots.
     migrated = conn.execute("SELECT value FROM safka_schema_meta WHERE key='product_price_rule'").fetchone()

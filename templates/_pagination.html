@@ -1,0 +1,7 @@
+{% if pager.pages > 1 %}
+<nav class="pagination" aria-label="صفحات القائمة">
+ {% if pager.page > 1 %}<a href="{{page_link(pager.param,pager.page-1,pager.anchor)}}" rel="prev">السابق</a>{% endif %}
+ {% for n in pager.numbers %}{% if n == 0 %}<span class="pagination-gap">…</span>{% elif n == pager.page %}<span class="page-current" aria-current="page">{{n}}</span>{% else %}<a href="{{page_link(pager.param,n,pager.anchor)}}" aria-label="الصفحة {{n}}">{{n}}</a>{% endif %}{% endfor %}
+ {% if pager.page < pager.pages %}<a href="{{page_link(pager.param,pager.page+1,pager.anchor)}}" rel="next">التالي</a>{% endif %}
+</nav>{% endif %}
+<p class="result-count">عرض {{pager.start}}–{{pager.end}} من {{pager.total}}</p>

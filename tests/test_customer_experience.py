@@ -45,8 +45,8 @@ class CustomerExperienceTests(unittest.TestCase):
         self.assertEqual(response.headers['Location'],'/favorites')
         self.assertIn('منتج عادي'.encode(),self.client.get('/favorites').data)
 
-    def test_unauthenticated_wishlist_and_reviews_require_login(self):
-        self.assertEqual(self.client.get('/favorites').status_code,302)
+    def test_guest_favorites_work_while_reviews_still_require_login(self):
+        self.assertEqual(self.client.get('/favorites').status_code,200)
         self.assertEqual(self.client.post('/favorites/toggle/1',data={'csrf':self.token()}).status_code,302)
         self.assertEqual(self.client.post('/products/1/review',data={
             'csrf':self.token(),'rating':'5','slug':'simple-product'}).status_code,302)
