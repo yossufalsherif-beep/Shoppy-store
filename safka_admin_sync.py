@@ -77,12 +77,23 @@ def checked_shipping(payload, records):
     if not flattened or len(flattened)>10000:
         raise CatalogValidationError('Invalid expanded city count')
     normalized=[normalize_shipping(row) for row in flattened]
-    pairs=[(r['governorate'],r['city'],r['area']) for r in normalized]
-    if len(set(pairs))!=len(pairs):
-        raise CatalogValidationError('Duplicate city price-list entry')
     if any(not r['city'] or not r['pricing_document_id'] for r in normalized):
         raise CatalogValidationError('Missing verified city or price-list ID')
-    return flattened
+    unique={}
+    result=[]
+    for source,row in zip(flattened,normalized):
+        destination=(row['governorate'],row['city'],row['area'])
+        previous=unique.get(destination)
+        if previous is not None:
+            # The API repeats some identical destination labels. An alias is
+            # safe only within the SAME pricing document and exact fee. Keep
+            # the first official city ID; never merge conflicting prices.
+            if any(previous[k]!=row[k] for k in ('pricing_document_id','supplier_fee','fee')):
+                raise CatalogValidationError('Conflicting duplicate city price-list entry')
+            continue
+        unique[destination]=row
+        result.append(source)
+    return result
 
 
 def sync_product_page(conn, records, page, pages):
