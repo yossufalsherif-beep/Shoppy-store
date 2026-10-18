@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS orders(
  address TEXT NOT NULL,shipping_fee BIGINT NOT NULL,total BIGINT NOT NULL,
  status TEXT NOT NULL DEFAULT 'new',created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
  checkout_key TEXT,utm_source TEXT NOT NULL DEFAULT '',utm_campaign TEXT NOT NULL DEFAULT '',
- shipping_supplier_cost BIGINT, safka_shipping_pricing_document_id TEXT
+ shipping_supplier_cost BIGINT, safka_shipping_pricing_document_id TEXT, safka_city_id TEXT
 );
 CREATE TABLE IF NOT EXISTS order_items(
  id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL REFERENCES orders(id),
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS safka_shipping_rates(
  id BIGSERIAL PRIMARY KEY,governorate TEXT NOT NULL,city TEXT NOT NULL DEFAULT '',
  area TEXT NOT NULL DEFAULT '',supplier_fee BIGINT NOT NULL,
  fee BIGINT NOT NULL,updated_at TEXT NOT NULL,
- pricing_document_id TEXT,UNIQUE(governorate,city,area)
+ pricing_document_id TEXT,city_id TEXT,UNIQUE(governorate,city,area)
 );
 CREATE TABLE IF NOT EXISTS safka_sync_runs(
  id BIGSERIAL PRIMARY KEY,kind TEXT NOT NULL,updated INTEGER NOT NULL,
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS safka_order_outbox(
  status TEXT NOT NULL DEFAULT 'awaiting_provider_configuration',
  supplier_order_id TEXT,error TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
- attempt_count INTEGER NOT NULL DEFAULT 0, submitted_commission_piastres BIGINT
+ attempt_count INTEGER NOT NULL DEFAULT 0, submitted_commission_piastres BIGINT, supplier_status TEXT, supplier_status_updated_at TEXT
 );
 CREATE TABLE IF NOT EXISTS safka_schema_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS product_overrides(
@@ -121,3 +121,13 @@ ALTER TABLE product_overrides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE favorites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_reviews ENABLE ROW LEVEL SECURITY;
 COMMIT;
+
+CREATE INDEX IF NOT EXISTS idx_safka_order_provider_id ON safka_order_outbox(supplier_order_id);
+CREATE INDEX IF NOT EXISTS idx_products_price_page ON products(price,id);
+CREATE INDEX IF NOT EXISTS idx_products_category_price ON products(category,price,id);
+CREATE INDEX IF NOT EXISTS idx_orders_status_page ON orders(status,id);
+CREATE INDEX IF NOT EXISTS idx_orders_governorate_page ON orders(governorate,id);
+CREATE INDEX IF NOT EXISTS idx_orders_created_page ON orders(created_at,id);
+CREATE INDEX IF NOT EXISTS idx_orders_user_page ON orders(user_id,id);
+CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_product_media_product ON product_media(product_id,position,id);

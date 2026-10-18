@@ -3,11 +3,14 @@ from decimal import Decimal, InvalidOperation
 from werkzeug.utils import secure_filename
 from pathlib import Path
 from functools import wraps
-from flask import Flask, request, redirect, session, render_template, abort, flash, jsonify
+from flask import Flask, request, redirect, session, render_template, abort, flash, jsonify, g, has_request_context
 from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from catalog_quality import clean_description
+from ui_queries import paginate, price_filter, order_filters, grouped, ORDER_LABELS
+from safka_status import SUPPLIER_STATUS_LABELS, apply_order_status_event
+from urllib.parse import urlencode
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
 from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, CatalogValidationError
 from safka_dry_run import prepare_dry_run
@@ -15,6 +18,7 @@ from safka_live_orders import (canonical_order, load_contract, build_payload,
     submit_payload, claim_one_test_order, record_outcome, OrderContractError)
 from safka_cleanup import summary as safka_cleanup_summary, cleanup as safka_cleanup, CleanupNotReady, CONFIRM_TEXT
 ROOT=Path(__file__).parent
+ASSET_VERSION=hashlib.sha256((ROOT/'static/style.css').read_bytes()+(ROOT/'static/store.js').read_bytes()).hexdigest()[:12]
 load_dotenv(ROOT / '.env')
 if os.environ.get('VERCEL') and (not os.getenv('SECRET_KEY') or not os.getenv('DATABASE_URL')):
  raise RuntimeError('SECRET_KEY and DATABASE_URL are required for Vercel staging')
@@ -91,6 +95,16 @@ CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);'''
   if os.environ.get('DATABASE_URL'):
    # Keep Supabase Data API anonymous/authorized roles away from merchant edits.
    c.execute('ALTER TABLE product_overrides ENABLE ROW LEVEL SECURITY')
+  for name,table,columns in [
+   ('idx_products_price_page','products','price,id'),
+   ('idx_products_category_price','products','category,price,id'),
+   ('idx_orders_status_page','orders','status,id'),
+   ('idx_orders_governorate_page','orders','governorate,id'),
+   ('idx_orders_created_page','orders','created_at,id'),
+   ('idx_orders_user_page','orders','user_id,id'),
+   ('idx_order_items_order','order_items','order_id'),
+   ('idx_product_media_product','product_media','product_id,position,id')]:
+   c.execute('CREATE INDEX IF NOT EXISTS '+name+' ON '+table+'('+columns+')')
   # Never auto-seed demonstration catalog or arbitrary shipping prices.
   # User-owned records remain until an explicit backup + cleanup operation.
 def csrf():return session.setdefault('csrf',secrets.token_urlsafe(24))
@@ -113,9 +127,11 @@ def safka_only_mode():
 def context():
  return {'csrf':csrf(),'user':current_user(),'cart_count':sum(q for q in session.get('cart',{}).values() if isinstance(q,int)),'money':lambda x:f'{x/100:,.2f}', 'contact':store_settings(),'staging_mode':STAGING_MODE and not supplier_checkout_live()}
 def current_user():
+ if hasattr(g,'store_user'):return g.store_user
  uid=session.get('uid')
- if not uid:return None
- with db() as c:return c.execute('SELECT id,email,role FROM users WHERE id=?',(uid,)).fetchone()
+ if not uid:g.store_user=None;return None
+ with db() as c:g.store_user=c.execute('SELECT id,email,role FROM users WHERE id=?',(uid,)).fetchone()
+ return g.store_user
 @app.before_request
 def staging_gate():
  if STAGING_MODE:
@@ -163,7 +179,11 @@ def capture_campaign():
    session[name]=re.sub(r'[^a-zA-Z0-9_\-\u0600-\u06FF ]','',value)[:80]
 
 def store_settings():
- with db() as conn:return {r['key']:r['value'] for r in conn.execute('SELECT key,value FROM store_settings')}
+ if not has_request_context():
+  with db() as conn:return {r['key']:r['value'] for r in conn.execute('SELECT key,value FROM store_settings')}
+ if not hasattr(g,'store_settings'):
+  with db() as conn:g.store_settings={r['key']:r['value'] for r in conn.execute('SELECT key,value FROM store_settings')}
+ return g.store_settings
 
 def shipping_quote(conn, governorate,city='',area=''):
  """Region-specific override beats city override beats governorate base rate."""
@@ -178,14 +198,31 @@ def shipping_quote(conn, governorate,city='',area=''):
  return None
 
 def customer_favorite_ids(conn,user):
- if not user:return set()
- return {r['product_id'] for r in conn.execute(
-    'SELECT product_id FROM favorites WHERE user_id=?',(user['id'],)).fetchall()}
+ if not user:return {x for x in session.get('guest_favorites',[]) if isinstance(x,int) and x>0}
+ return {r['product_id'] for r in conn.execute('SELECT product_id FROM favorites WHERE user_id=?',(user['id'],)).fetchall()}
 
-def customer_product_rating_map(conn):
+def customer_product_rating_map(conn,ids=None):
+ if ids is not None and not ids:return {}
+ where=(' WHERE product_id IN ('+','.join('?' for _ in ids)+')') if ids is not None else ''
  return {r['product_id']:{'avg':float(r['avg_rating']),'count':r['review_count']}
-         for r in conn.execute("""SELECT product_id,AVG(rating) AS avg_rating,COUNT(*) AS review_count
-               FROM product_reviews GROUP BY product_id""").fetchall()}
+         for r in conn.execute('SELECT product_id,AVG(rating) AS avg_rating,COUNT(*) AS review_count FROM product_reviews'+where+' GROUP BY product_id',ids or []).fetchall()}
+
+def page_link(param,page,anchor=''):
+ args=request.args.to_dict();args[param]=page
+ return request.path+'?'+urlencode(args)+('#'+anchor if anchor else '')
+
+def query_link(**updates):
+ args=request.args.to_dict()
+ for key,value in updates.items():
+  if value in ('',None):args.pop(key,None)
+  else:args[key]=value
+ return request.path+('?' + urlencode(args) if args else '')+'#catalog'
+
+@app.context_processor
+def ui_helpers():
+ return dict(asset_version=ASSET_VERSION,page_link=page_link,query_link=query_link,order_labels=ORDER_LABELS,
+             can_order=supplier_stock_ready,product_choices=product_choices,
+             supplier_status_labels=SUPPLIER_STATUS_LABELS,supplier_live=supplier_checkout_live())
 
 def safe_back_url():
  target=request.form.get('return_to','')
@@ -201,16 +238,25 @@ def safe_back_url():
 def home():
  capture_campaign()
  term=request.args.get('q','').strip()[:80]; category=request.args.get('category','').strip()[:200]
+ filters=["(active=1 OR (source='safka' AND supplier_listed=1))"];args=[]
+ if term:filters.append('(LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?))');args.extend(['%'+term+'%','%'+term+'%'])
+ if category:filters.append('category=?');args.append(category)
+ try:
+  low=price_filter(request.args.get('min_price',''));high=price_filter(request.args.get('max_price',''))
+  if low is not None and high is not None and low>high:raise ValueError('السعر من أكبر من السعر إلى؛ راجع النطاق.')
+ except ValueError as exc:
+  flash(str(exc));low=high=None
+ for amount,operator in [(low,'>='),(high,'<=')]:
+  if amount is not None:filters.append('price'+operator+'?');args.append(amount)
+ order={'newest':'id DESC','price_low':'price ASC,id DESC','price_high':'price DESC,id DESC'}.get(request.args.get('sort'),'id DESC')
  with db() as c:
-  filters=["(active=1 OR (source='safka' AND supplier_listed=1))"];args=[]
-  if term:filters.append('(title LIKE ? OR description LIKE ?)');args.extend(['%'+term+'%','%'+term+'%'])
-  if category:filters.append('category=?');args.append(category)
-  items=c.execute('SELECT * FROM products WHERE '+' AND '.join(filters)+' ORDER BY id DESC',args).fetchall()
+  where=' WHERE '+' AND '.join(filters)
+  items,pager=paginate(c,'SELECT * FROM products'+where,'SELECT COUNT(*) FROM products'+where,args,order,request.args.get('page'),30,anchor='catalog')
   categories=[r['category'] for r in c.execute("SELECT DISTINCT category FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND category!='' ORDER BY category")]
   fav_ids=customer_favorite_ids(c,current_user())
-  ratings_map=customer_product_rating_map(c)
- return render_template('home.html',items=items,term=term,category=category,
-                        categories=categories,fav_ids=fav_ids,ratings_map=ratings_map)
+  ratings_map=customer_product_rating_map(c,[p['id'] for p in items])
+ return render_template('home.html',items=items,term=term,category=category,categories=categories,
+                        fav_ids=fav_ids,ratings_map=ratings_map,pager=pager)
 
 @app.route('/products/<slug>')
 def product(slug):
@@ -227,7 +273,7 @@ def product(slug):
   media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
   user=current_user()
   fav_ids=customer_favorite_ids(c,user)
-  ratings_map=customer_product_rating_map(c)
+  ratings_map=customer_product_rating_map(c,[p['id']]+[x['id'] for x in others])
   reviews=c.execute("""SELECT rating,comment,created_at FROM product_reviews
                    WHERE product_id=? ORDER BY created_at DESC,id DESC LIMIT 50""",(p['id'],)).fetchall()
   mine=(c.execute('SELECT rating,comment FROM product_reviews WHERE product_id=? AND user_id=?',
@@ -255,25 +301,28 @@ def decoded_cart_key(key):
  if not isinstance(choices,dict):return None,None
  return int(pid),choices
 
+def action_response(message,ok=True,redirect_to='/cart',status=200,**extra):
+ if request.headers.get('Accept','').startswith('application/json'):
+  return jsonify(ok=ok,message=message,cart_count=sum(q for q in session.get('cart',{}).values() if isinstance(q,int)),**extra),status
+ flash(message);return redirect(redirect_to)
+
 @app.post('/cart/add/<int:pid>')
 def add_cart(pid):
  with db() as c:p=c.execute('SELECT * FROM products WHERE id=? AND active=1',(pid,)).fetchone()
  if not p:abort(404)
  options=product_choices(p);chosen={}
- for key, values in options.items():
+ for key,values in options.items():
   val=request.form.get('option_'+key,'')
-  if val not in values:flash('اختار '+key+' قبل الإضافة للسلة');return redirect('/products/'+p['slug'])
+  if val not in values:return action_response('اختار '+key+' قبل الإضافة للسلة',False,'/products/'+p['slug'],422)
   chosen[key]=val
  cart=session.get('cart',{});key=encoded_cart_key(pid,chosen)
  new_quantity=min(99,int(cart.get(key,0))+1)
- # A supplier stock count applies to ALL size/color choices of this product
- # until Safka confirms independently tracked SKU-level inventory.
  combined=sum(q for k,q in cart.items() if decoded_cart_key(str(k))[0]==pid and isinstance(q,int) and k!=key)+new_quantity
  if p['source']=='safka' and not supplier_stock_ready(p,combined):
-  flash('الكمية المطلوبة مش متوفرة حسب آخر مزامنة مع صفقة');return redirect('/products/'+p['slug'])
+  return action_response('الكمية المطلوبة مش متوفرة حسب آخر مزامنة مع صفقة',False,'/products/'+p['slug'],409)
  cart[key]=new_quantity;session['cart']=cart
- flash('تمت إضافة المنتج للسلة')
- return redirect('/cart')
+ back=safe_back_url() if request.form.get('return_to') else '/cart'
+ return action_response('تمت إضافة المنتج للسلة',redirect_to=back,view_url='/cart')
 
 def cart_data():
  rows=[]
@@ -478,9 +527,15 @@ def complete_customer_auth(uid,role):
  previous_cart=session.get('cart',{})
  continue_checkout=bool(session.get('checkout_after_login'))
  pending_fav=session.get('pending_favorite')
+ guest_favs=session.get('guest_favorites',[])
  utm=(session.get('utm_source',''),session.get('utm_campaign',''))
  session.clear()
  session['uid']=uid
+ if guest_favs:
+  with db() as conn:
+   for pid in guest_favs:
+    if isinstance(pid,int) and conn.execute("SELECT 1 FROM products WHERE id=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(pid,)).fetchone():
+     conn.execute('INSERT INTO favorites(user_id,product_id) VALUES(?,?) ON CONFLICT(user_id,product_id) DO NOTHING',(uid,pid))
  if isinstance(previous_cart,dict):session['cart']=previous_cart
  if utm[0]:session['utm_source']=utm[0]
  if utm[1]:session['utm_campaign']=utm[1]
@@ -494,7 +549,7 @@ def complete_customer_auth(uid,role):
        ON CONFLICT(user_id,product_id) DO NOTHING""",(uid,pending_fav))
  if continue_checkout and previous_cart:
   return redirect('/checkout')
- if pending_fav:
+ if pending_fav or guest_favs:
   return redirect('/favorites')
  return redirect('/account')
 
@@ -555,10 +610,11 @@ def account():
  u=current_user()
  if not u:return redirect('/login')
  with db() as c:
-  orders=c.execute('SELECT * FROM orders WHERE user_id=? ORDER BY id DESC LIMIT 100',(u['id'],)).fetchall()
-  details={o['id']:c.execute('SELECT title,quantity,unit_price FROM order_items WHERE order_id=?',(o['id'],)).fetchall() for o in orders}
-  supplier_states={o['id']:c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(o['id'],)).fetchone() for o in orders}
- return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states)
+  orders,pager=paginate(c,'SELECT * FROM orders WHERE user_id=?','SELECT COUNT(*) FROM orders WHERE user_id=?',[u['id']],'id DESC',request.args.get('page'),20)
+  ids=[o['id'] for o in orders]
+  details=grouped(c,'order_items','order_id',ids,order='id')
+  supplier_states={oid:rows[0] for oid,rows in grouped(c,'safka_order_outbox','order_id',ids).items() if rows}
+ return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states,pager=pager)
 @app.get('/admin/safka/order/<int:oid>/preview')
 @admin_only
 def preview_safka_order(oid):
@@ -647,33 +703,40 @@ def replace_manual_catalog():
 @app.route('/admin')
 @admin_only
 def admin():
- with db() as c:orders=c.execute('SELECT * FROM orders ORDER BY id DESC LIMIT 100').fetchall();products=c.execute('SELECT * FROM products ORDER BY id DESC').fetchall();rates=c.execute('SELECT * FROM shipping ORDER BY governorate').fetchall()
-
+ try:where,args,order=order_filters(request.args)
+ except ValueError as exc:flash(str(exc));where,args,order='',[],'o.id ASC'
  with db() as c:
-  notify_status={o['reference']:c.execute('SELECT status,recipient FROM notification_outbox WHERE order_ref=? ORDER BY id',(o['reference'],)).fetchall() for o in orders}
-  details={o['id']:c.execute('SELECT title,unit_price,quantity,variant_json FROM order_items WHERE order_id=?',(o['id'],)).fetchall() for o in orders}
-  media_counts={p['id']:c.execute('SELECT COUNT(*) FROM product_media WHERE product_id=?',(p['id'],)).fetchone()[0] for p in products}
-  product_media={p['id']:c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall() for p in products}
- with db() as c:
+  orders,orders_pager=paginate(c,'SELECT o.* FROM orders o'+where,'SELECT COUNT(*) FROM orders o'+where,args,order,request.args.get('orders_page'),20,'orders_page','orders')
+  product_terms=[];product_args=[]
+  product_q=request.args.get('product_q','').strip()[:80]
+  if product_q:product_terms.append('(LOWER(title) LIKE LOWER(?) OR LOWER(slug) LIKE LOWER(?))');product_args.extend(['%'+product_q+'%']*2)
+  product_category=request.args.get('product_category','').strip()[:200]
+  if product_category:product_terms.append('category=?');product_args.append(product_category)
+  product_where=' WHERE '+' AND '.join(product_terms) if product_terms else ''
+  products,products_pager=paginate(c,'SELECT * FROM products'+product_where,'SELECT COUNT(*) FROM products'+product_where,product_args,'id DESC',request.args.get('products_page'),30,'products_page','products')
+  ids=[o['id'] for o in orders];pids=[p['id'] for p in products]
+  details=grouped(c,'order_items','order_id',ids,order='id')
+  notify_status=grouped(c,'notification_outbox','order_ref',[o['reference'] for o in orders],order='id')
+  product_media=grouped(c,'product_media','product_id',pids,order='position,id')
+  media_counts={pid:len(product_media[pid]) for pid in pids}
+  safka_states={oid:rows[0] for oid,rows in grouped(c,'safka_order_outbox','order_id',ids).items() if rows}
+  rates=c.execute('SELECT * FROM shipping ORDER BY governorate').fetchall()
   zones=c.execute('SELECT * FROM shipping_zones ORDER BY governorate,city,area').fetchall()
-  funnels=c.execute('''SELECT COALESCE(NULLIF(utm_source,''),'مباشر / غير معروف') AS source,COALESCE(NULLIF(utm_campaign,''),'بدون حملة') AS campaign,
-COUNT(*) AS count,SUM(total) AS order_value FROM orders GROUP BY source,campaign ORDER BY count DESC LIMIT 12''').fetchall()
+  funnels=c.execute("SELECT COALESCE(NULLIF(utm_source,''),'مباشر / غير معروف') AS source,COALESCE(NULLIF(utm_campaign,''),'بدون حملة') AS campaign,COUNT(*) AS count,SUM(total) AS order_value FROM orders GROUP BY source,campaign ORDER BY count DESC LIMIT 12").fetchall()
   states=c.execute('SELECT status,COUNT(*) AS count FROM orders GROUP BY status ORDER BY count DESC').fetchall()
-  cost_rows=c.execute('''SELECT o.id AS order_id,o.total,o.shipping_supplier_cost,
-SUM(CASE WHEN oi.unit_cost IS NULL THEN 1 ELSE 0 END) AS missing_cost,
-SUM(CASE WHEN oi.unit_cost IS NULL THEN 0 ELSE oi.unit_cost*oi.quantity END) AS item_cost
-FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id GROUP BY o.id''').fetchall()
-  priced=[r for r in cost_rows if r['shipping_supplier_cost'] is not None and r['missing_cost']==0]
-  estimated_margin=sum(r['total']-r['item_cost']-r['shipping_supplier_cost'] for r in priced)
-  settings=store_settings()
-  safka_states={row['order_id']:row for row in c.execute('SELECT * FROM safka_order_outbox')}
+  margin=c.execute("SELECT COUNT(*) AS count,COALESCE(SUM(total-item_cost-shipping_supplier_cost),0) AS margin FROM (SELECT o.id,o.total,o.shipping_supplier_cost,SUM(CASE WHEN oi.unit_cost IS NULL THEN 1 ELSE 0 END) AS missing_cost,SUM(COALESCE(oi.unit_cost,0)*oi.quantity) AS item_cost FROM orders o LEFT JOIN order_items oi ON oi.order_id=o.id GROUP BY o.id,o.total,o.shipping_supplier_cost) AS costs WHERE shipping_supplier_cost IS NOT NULL AND missing_cost=0").fetchone()
+  metrics=c.execute("SELECT COUNT(*) AS orders,COALESCE(SUM(total),0) AS value,SUM(CASE WHEN status='new' THEN 1 ELSE 0 END) AS new_orders FROM orders").fetchone()
+  active_products=c.execute('SELECT COUNT(*) FROM products WHERE active=1').fetchone()[0]
+  order_governorates=[r['governorate'] for r in c.execute('SELECT DISTINCT governorate FROM orders ORDER BY governorate')]
+  product_categories=[r['category'] for r in c.execute("SELECT DISTINCT category FROM products WHERE category!='' ORDER BY category")]
+  settings={r['key']:r['value'] for r in c.execute('SELECT key,value FROM store_settings')};g.store_settings=settings
   safka_sync=c.execute('SELECT kind,updated,hidden,created_at,source_label FROM safka_sync_runs ORDER BY id DESC LIMIT 6').fetchall()
   safka_count=c.execute("SELECT COUNT(*) FROM products WHERE source='safka'").fetchone()[0]
   cleanup_state=safka_cleanup_summary(c)
  from safka_webhooks import webhook_token
  hook_base=request.url_root.rstrip('/')+'/integrations/safka/hook/'
  safka_hook_urls={kind:hook_base+kind+'/'+webhook_token(app.secret_key,kind) for kind in ('product','order','callback')}
- return render_template('admin.html',safka_hook_urls=safka_hook_urls,orders=orders,products=products,rates=rates,details=details,media_counts=media_counts,product_media=product_media,notify_status=notify_status,zones=zones,funnels=funnels,states=states,estimated_margin=estimated_margin,margin_order_count=len(priced),settings=settings,wa_configured=os.environ.get('SHOPY_WA_ENABLED')=='1',safka_states=safka_states,safka_sync=safka_sync,safka_count=safka_count,cleanup_state=cleanup_state,safka_only=safka_only_mode(),cleanup_text=CONFIRM_TEXT,api_read_enabled=os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1',api_key_present=bool(os.getenv('SHOPY_SAFKA_API_KEY')))
+ return render_template('admin.html',safka_hook_urls=safka_hook_urls,orders=orders,products=products,rates=rates,details=details,media_counts=media_counts,product_media=product_media,notify_status=notify_status,zones=zones,funnels=funnels,states=states,estimated_margin=margin['margin'],margin_order_count=margin['count'],settings=settings,wa_configured=os.environ.get('SHOPY_WA_ENABLED')=='1',safka_states=safka_states,safka_sync=safka_sync,safka_count=safka_count,cleanup_state=cleanup_state,safka_only=settings.get('catalog_mode')=='safka_only',cleanup_text=CONFIRM_TEXT,api_read_enabled=os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1',api_key_present=bool(os.getenv('SHOPY_SAFKA_API_KEY')),orders_pager=orders_pager,products_pager=products_pager,metrics=metrics,active_products=active_products,order_governorates=order_governorates,product_categories=product_categories)
 
 def parse_money(value):
  try:
@@ -825,7 +888,8 @@ def status(oid):
  value=request.form.get('status','');allowed=('new','confirmed','preparing','shipped','delivered','cancelled')
  if value not in allowed:abort(400)
  with db() as c:c.execute('UPDATE orders SET status=? WHERE id=?',(value,oid))
- return redirect('/admin')
+ target=request.form.get('return_to','')
+ return redirect(target+'#orders' if target.startswith('/admin?') and '\\' not in target else '/admin#orders')
 @app.post('/admin/shipping-zone')
 @admin_only
 def edit_shipping_zone():
@@ -866,42 +930,35 @@ def update_contact():
 
 @app.post('/favorites/toggle/<int:pid>')
 def toggle_favorite(pid):
- user=current_user()
- if not user:
-  # Heart selection survives sign-up/login on this browser.
-  session['pending_favorite']=pid
-  flash('سجل دخولك علشان نحفظ المنتج في مفضلتك تلقائيًا.')
-  return redirect('/login')
- back=safe_back_url()
+ user=current_user();back=safe_back_url()
  with db() as conn:
-  p=conn.execute("""SELECT id FROM products WHERE id=? AND
-    (active=1 OR (source='safka' AND supplier_listed=1))""",(pid,)).fetchone()
+  p=conn.execute("SELECT id FROM products WHERE id=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(pid,)).fetchone()
   if not p:abort(404)
-  old=conn.execute('SELECT 1 FROM favorites WHERE user_id=? AND product_id=?',
-                   (user['id'],pid)).fetchone()
-  if old:
-   conn.execute('DELETE FROM favorites WHERE user_id=? AND product_id=?',(user['id'],pid))
-   flash('اتشال من المفضلة')
-  else:
-   conn.execute("""INSERT INTO favorites(user_id,product_id) VALUES(?,?)
-                ON CONFLICT(user_id,product_id) DO NOTHING""",(user['id'],pid))
-   flash('اتضاف للمفضلة')
- return redirect(back)
+  ids=customer_favorite_ids(conn,user);added=pid not in ids
+  if user:
+   if not added:conn.execute('DELETE FROM favorites WHERE user_id=? AND product_id=?',(user['id'],pid))
+   else:conn.execute('INSERT INTO favorites(user_id,product_id) VALUES(?,?) ON CONFLICT(user_id,product_id) DO NOTHING',(user['id'],pid))
+  if added:ids.add(pid)
+  else:ids.discard(pid)
+  if not user:
+   if len(ids)>200:return action_response('سجل دخولك لحفظ قائمة أكبر من المفضلة.',False,back,422)
+   session['guest_favorites']=sorted(ids)
+ return action_response('اتضاف للمفضلة' if added else 'اتشال من المفضلة',redirect_to=back,
+                        favorite=added,favorite_count=len(ids),view_url='/favorites')
 
 @app.get('/favorites')
 def favorites():
  user=current_user()
- if not user:
-  flash('سجل دخولك علشان تفتح قائمة المفضلة الخاصة بيك.')
-  return redirect('/login')
  with db() as conn:
-  items=conn.execute("""SELECT p.* FROM products p
-      JOIN favorites f ON f.product_id=p.id
-      WHERE f.user_id=? AND (p.active=1 OR (p.source='safka' AND p.supplier_listed=1))
-      ORDER BY f.created_at DESC,p.id DESC""",(user['id'],)).fetchall()
   fav_ids=customer_favorite_ids(conn,user)
-  ratings_map=customer_product_rating_map(conn)
- return render_template('favorites.html',items=items,fav_ids=fav_ids,ratings_map=ratings_map)
+  if user:
+   where=" FROM products p JOIN favorites f ON f.product_id=p.id WHERE f.user_id=? AND (p.active=1 OR (p.source='safka' AND p.supplier_listed=1))";params=[user['id']];order='f.created_at DESC,p.id DESC'
+  else:
+   where=' FROM products p WHERE p.id IN ('+','.join('?' for _ in fav_ids)+") AND (p.active=1 OR (p.source='safka' AND p.supplier_listed=1))" if fav_ids else ' FROM products p WHERE 1=0'
+   params=sorted(fav_ids);order='p.id DESC'
+  items,pager=paginate(conn,'SELECT p.*'+where,'SELECT COUNT(*)'+where,params,order,request.args.get('page'),30)
+  ratings_map=customer_product_rating_map(conn,[p['id'] for p in items])
+ return render_template('favorites.html',items=items,fav_ids=fav_ids,ratings_map=ratings_map,pager=pager)
 
 @app.post('/products/<int:pid>/review')
 def submit_product_review(pid):
@@ -1039,7 +1096,10 @@ def safka_incoming_hook(kind,token):
   return ('',204)
  # Safka productHook means the affiliate opened a product. It is NOT
  # verified inventory state and must never hide or publish our catalog.
- # Unknown orderHook event schemas must also not change buyer order status.
+ if kind=='order':
+  # Token authenticated above; only the documented event and a known provider ID
+  # can update supplier facts. Customer names/phones/amounts in the event are ignored.
+  with db() as conn:apply_order_status_event(conn,data)
  return ('',202)
 
 
