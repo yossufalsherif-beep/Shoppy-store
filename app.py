@@ -319,7 +319,7 @@ def add_cart(pid):
  new_quantity=min(99,int(cart.get(key,0))+1)
  combined=sum(q for k,q in cart.items() if decoded_cart_key(str(k))[0]==pid and isinstance(q,int) and k!=key)+new_quantity
  if p['source']=='safka' and not supplier_stock_ready(p,combined):
-  return action_response('الكمية المطلوبة مش متوفرة حسب آخر مزامنة مع صفقة',False,'/products/'+p['slug'],409)
+  return action_response('الكمية المطلوبة غير متوفرة حاليًا؛ اختار كمية أقل',False,'/products/'+p['slug'],409)
  cart[key]=new_quantity;session['cart']=cart
  back=safe_back_url() if request.form.get('return_to') else '/cart'
  return action_response('تمت إضافة المنتج للسلة',redirect_to=back,view_url='/cart')
@@ -433,7 +433,7 @@ def checkout():
     c.execute('BEGIN IMMEDIATE')
     existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
     if existing:return redirect('/order/success/'+existing['reference'])
-    if mixed_cart:raise ValueError('قسم الطلب: لا يمكن شحن منتجات صفقة ومنتجاتك اليدوية معًا حاليًا')
+    if mixed_cart:raise ValueError('المنتجات دي تحتاج طلبات منفصلة؛ راجع السلة')
     rate=(quote_safka_shipping if supplier_cart else shipping_quote)(c,gov,city,area)
     if rate is None:raise ValueError('الشحن غير متاح للعنوان المحدد حاليًا. اختر منطقة مدعومة.')
     if supplier_cart and supplier_checkout_live():
@@ -452,7 +452,7 @@ def checkout():
      if not p2 or any(choices.get(k) not in vals for k,vals in product_choices(p2).items()) or set(choices)!=set(product_choices(p2)):
       raise ValueError('بعض المنتجات أو الخيارات لم تعد متاحة، راجع السلة')
      if p2['source']=='safka' and not supplier_stock_ready(p2,quantities_by_product[p2['id']]):
-      raise ValueError('مخزون صفقة الحالي غير مؤكد أو لا يكفي لهذا المنتج؛ راجع السلة')
+      raise ValueError('الكمية المتاحة غير مؤكدة أو لا تكفي لهذا المنتج؛ راجع السلة')
      fresh.append((p2,q,choices))
     total=sum(p['price']*q for p,q,_ in fresh)+rate[0];ref='SH-'+secrets.token_hex(6).upper()
     full_address=' | '.join((city,area,address))
@@ -973,7 +973,7 @@ def submit_product_review(pid):
   return redirect('/products/'+request.form.get('slug',''))
  rating=int(raw)
  if rating<=3 and len(comment)<10:
-  flash('لو تقييمك 3 نجوم أو أقل، اكتب سبب التقييم (10 حروف على الأقل).')
+  flash('شاركنا تجربتك في تعليق من 10 حروف على الأقل.')
   return redirect('/products/'+request.form.get('slug',''))
  if len(comment)>1200:
   flash('التعليق طويل جدًا؛ الحد الأقصى 1200 حرف.')

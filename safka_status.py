@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone, timedelta
 
 SUPPLIER_STATUS_LABELS={
- 'pending':'بانتظار تأكيد المورد','preparing':'جارٍ التجهيز','printing':'جارٍ تجهيز مستندات الشحن',
+ 'pending':'بانتظار تأكيد الطلب','preparing':'جارٍ التجهيز','printing':'جارٍ تجهيز مستندات الشحن',
  'shipped':'في الشحن','available':'تم التوصيل','collected':'تم التحصيل','skip':'جارٍ الاسترجاع',
  'holding':'مؤجل','ask_to_exchange':'طلب استبدال','returned_exchange':'مرتجع استبدال',
  'ask_to_return':'طلب استرجاع','returned1':'مرتجع','returned2':'مرتجع بعد التسليم',

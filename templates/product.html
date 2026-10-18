@@ -45,8 +45,6 @@
     <span aria-hidden="true">★</span> {{'%.1f'|format(customer_rating.avg)}} / 5
     <small>({{customer_rating.count}} تقييم من عملائنا)</small>
    </a>
-  {% elif p.supplier_rating is not none and p.supplier_review_count and p.supplier_review_count>0 %}
-   <div class="product-rating"><span aria-hidden="true">★</span> {{'%.1f'|format(p.supplier_rating)}} / 5 <small>تقييم من المورد</small></div>
   {% endif %}
   <div class="price-block"><strong>{{money(p.price)}} <small>ج.م</small></strong><span>السعر غير شامل الشحن</span></div>
   <hr>
@@ -87,10 +85,10 @@
       {% endfor %}
      </div>
     </fieldset>
-    <label for="reviewComment" id="reviewCommentLabel">تعليقك <small id="reviewCommentHint">(اختياري للتقييم 4 أو 5 نجوم)</small></label>
+    <label for="reviewComment" id="reviewCommentLabel">تعليقك <small id="reviewCommentHint"></small></label>
     <textarea id="reviewComment" name="comment" rows="4" maxlength="1200"
      placeholder="شارك تجربتك مع المنتج">{{mine.comment if mine else ''}}</textarea>
-    <p id="lowRatingHelp" class="fine-print" hidden>لأن تقييمك 3 نجوم أو أقل، لازم توضح السبب في 10 حروف على الأقل.</p>
+    <p id="lowRatingHelp" class="fine-print" hidden>شاركنا تجربتك في تعليق من 10 حروف على الأقل.</p>
     <button class="btn btn-dark btn-wide" type="submit">{{'حفظ تعديل التقييم' if mine else 'نشر التقييم'}} ←</button>
    </form>
    {% else %}
@@ -123,8 +121,8 @@
   const checked=inputs.find(x=>x.checked);
   const mustExplain=!!checked&&Number(checked.value)<=3;
   comment.required=mustExplain;comment.minLength=mustExplain?10:0;
-  hint.textContent=mustExplain?'(إجباري)':'(اختياري للتقييم 4 أو 5 نجوم)';
-  low.hidden=!mustExplain;
+  hint.textContent='';
+  low.hidden=true;
  }
  inputs.forEach(x=>x.addEventListener('change',sync));sync();
 })();
