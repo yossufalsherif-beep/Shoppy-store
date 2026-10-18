@@ -46,6 +46,17 @@ class ShippingAndPropertyTests(unittest.TestCase):
       {'itemsCount':2,'totalActiveGovernorates':1,'pages':3},[active,inactive]))
   self.assertEqual(len(rows),1)
   self.assertEqual(rows[0]['governorateNameAr'],'القاهرة')
+ def test_same_destination_aliases_keep_one_official_id_and_price(self):
+  row=self.sample('a','القاهرة',1)
+  row['cities'].append({'id':'2','city_name_ar':'مدينة 1'})
+  rates=shipping_snapshot('offline',read=lambda *a,**k:({'itemsCount':1},[row]))
+  self.assertEqual(len(rates),1)
+  self.assertEqual(rates[0]['city_id'],'1')
+ def test_conflicting_price_documents_for_same_destination_remain_blocked(self):
+  first=self.sample('a','القاهرة',1);second=self.sample('b','القاهرة',1)
+  second['price']=80
+  with self.assertRaises(CatalogValidationError):
+   shipping_snapshot('offline',read=lambda *a,**k:({'itemsCount':2},[first,second]))
  def test_incomplete_and_unknown_city_snapshots_are_rejected(self):
   with self.assertRaises(CatalogValidationError):
    shipping_snapshot('offline',read=lambda *a,**k:({'itemsCount':2},[self.sample('a','القاهرة',1)]))
