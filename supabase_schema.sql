@@ -120,6 +120,14 @@ ALTER TABLE safka_schema_meta ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_overrides ENABLE ROW LEVEL SECURITY;
 ALTER TABLE favorites ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_reviews ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE IF NOT EXISTS social_identities(provider TEXT NOT NULL,subject TEXT NOT NULL,user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,auth_user_id TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),PRIMARY KEY(provider,subject),UNIQUE(user_id,provider));
+ALTER TABLE social_identities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_standard_fee BIGINT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_discount BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS retained_profit_floor BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS market_pricing(product_id BIGINT PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,target_price BIGINT,verified_cost BIGINT,competitor_price BIGINT,source_url TEXT NOT NULL DEFAULT '',checked_at TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'needs_review',basis TEXT NOT NULL DEFAULT 'market',notes TEXT NOT NULL DEFAULT '',evidence_json TEXT NOT NULL DEFAULT '[]',previous_price BIGINT,CHECK(target_price IS NULL OR target_price>=0));
+ALTER TABLE market_pricing ENABLE ROW LEVEL SECURITY;
 COMMIT;
 
 CREATE INDEX IF NOT EXISTS idx_safka_order_provider_id ON safka_order_outbox(supplier_order_id);

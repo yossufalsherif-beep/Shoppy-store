@@ -9,6 +9,7 @@ import sqlite3
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import urlparse
+from profit_pricing import preserve_market_price, init_market_schema
 from catalog_quality import clean_description, suggested_category, availability_from_source, extract_rating
 
 PROVIDER = 'safka'
@@ -241,6 +242,7 @@ def normalize_shipping(raw):
 
 
 def init_safka_schema(conn):
+    init_market_schema(conn)
     cols = {r['name'] for r in conn.execute('PRAGMA table_info(products)')}
     for key, definition in (
         ('source', "TEXT NOT NULL DEFAULT 'manual'"),
@@ -357,6 +359,7 @@ def import_products(conn, records, *, complete=False, source_label='local-json')
             if custom:
                 conn.execute('UPDATE products SET title=?,description=?,category=?,price=?,options_json=? WHERE id=?',
                              (custom['title'],custom['description'],custom['category'],custom['price'],custom['options_json'],pid))
+            preserve_market_price(conn,pid,p['supplier_cost'])
             # Only replace remote provider media. Never remove customer-uploaded local images.
             conn.execute("DELETE FROM product_media WHERE product_id=? AND path LIKE 'https://%'", (pid,))
             for index, (kind, url) in enumerate([('image',u) for u in p['images']] + [('video',u) for u in p['videos']]):
@@ -475,6 +478,9 @@ def order_preview(conn, order_id):
         'merchant_reference':o['reference'], 'customer':o['customer'], 'phone':o['phone'],
         'governorate':o['governorate'],'address':o['address'],
         'customer_shipping_piastres':o['shipping_fee'],
+        'shipping_standard_fee':o['shipping_standard_fee'] if 'shipping_standard_fee' in o.keys() else None,
+        'shipping_discount':o['shipping_discount'] if 'shipping_discount' in o.keys() else 0,
+        'retained_profit_floor':o['retained_profit_floor'] if 'retained_profit_floor' in o.keys() else 0,
         'supplier_shipping_piastres':o['shipping_supplier_cost'],
         'customer_total_piastres':o['total'],
         'items':[{'supplier_product_id':x['supplier_product_id'],'supplier_product_code':x['supplier_product_code'],'name':x['title'],

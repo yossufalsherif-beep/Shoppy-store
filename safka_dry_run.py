@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 import sqlite3
+from profit_pricing import validate_delivery_snapshot
 from safka_bridge import order_preview, CatalogValidationError, sale_price_piastres, SHIPPING_MARKUP_PIASTRES
 
 
@@ -20,8 +21,6 @@ def prepare_dry_run(conn, order_id):
     raw = order_preview(conn, order_id)
     supplier_ship = raw['supplier_shipping_piastres']
     buyer_ship = raw['customer_shipping_piastres']
-    if supplier_ship is None or buyer_ship != supplier_ship + SHIPPING_MARKUP_PIASTRES:
-        raise CatalogValidationError('Cannot verify Safka shipping cost and +10 EGP margin')
     if not raw['items']:
         raise CatalogValidationError('Order has no Safka line items')
     items_total = 0
@@ -36,6 +35,8 @@ def prepare_dry_run(conn, order_id):
             raise CatalogValidationError('Merchant price is below supplier cost: review before submission')
         items_total += item['customer_unit_price_piastres'] * item['quantity']
         supplier_items_total += cost * item['quantity']
+    try:validate_delivery_snapshot(raw,items_total,supplier_items_total)
+    except ValueError as exc:raise CatalogValidationError(str(exc)) from None
     if items_total + buyer_ship != raw['customer_total_piastres']:
         raise CatalogValidationError('Customer order total does not match saved item/shipping snapshots')
     return {

@@ -106,3 +106,9 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .favorite-heart.is-favorite{color:#bb2434;border-color:#efafb5;background:#fff1f2}
 @media(max-width:740px){.brand-logo{width:116px;height:48px}.brand-signature{font-size:7px;letter-spacing:.7px}}
 @media(max-width:360px){.brand-logo{width:100px;height:44px}}
+
+.social-login{display:grid;gap:12px;margin:24px 0}.social-login form{margin:0}.social-button{justify-content:center;gap:10px;min-height:48px}.social-apple{background:#17191b;color:#fff;border-color:#17191b}.social-button:disabled{opacity:.55;cursor:not-allowed}.social-button small{font-size:11px}.auth-divider{text-align:center;font-size:13px;color:var(--muted);margin:20px 0}.account-connections{margin:32px 0}.account-connections form{display:flex;gap:14px;align-items:end;flex-wrap:wrap;margin:14px 0}.account-connections label{max-width:300px}
+
+.admin-feature-links{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}.pricing-review-list{display:grid;gap:14px;margin:24px 0}.pricing-review-list summary{cursor:pointer;display:flex;flex-direction:column;gap:6px}.pricing-review-list small,.pricing-review-list summary span{font-size:13px;color:var(--muted)}.pricing-review-list details[open]{border-color:var(--accent)}.delivery-discount strong{color:var(--accent)}[hidden]{display:none!important}
+
+.social-setup{min-width:0}.social-setup code{overflow-wrap:anywhere;word-break:break-word;white-space:normal}.social-setup li{margin-block:12px}.social-setup .panel{min-width:0}
