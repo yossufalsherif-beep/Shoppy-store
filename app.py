@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from catalog_quality import clean_description
+from profit_pricing import init_pricing_schema, shipping_offer
+from social_auth import init_social_schema, configured_providers, start_flow, exchange_identity, resolve_account, SocialAuthError
 from ui_queries import paginate, price_filter, order_filters, grouped, ORDER_LABELS
 from safka_status import SUPPLIER_STATUS_LABELS, apply_order_status_event
 from urllib.parse import urlencode
@@ -48,6 +50,8 @@ CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY,reference TEXT UNIQUE N
 CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY,order_id INTEGER NOT NULL REFERENCES orders(id),product_id INTEGER REFERENCES products(id),title TEXT NOT NULL,unit_price INTEGER NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0));''')
   c.execute('''CREATE TABLE IF NOT EXISTS product_media (id INTEGER PRIMARY KEY,product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,kind TEXT NOT NULL CHECK(kind IN ('image','video')),path TEXT NOT NULL,position INTEGER NOT NULL DEFAULT 0)''')
   init_notification_store(c)
+  init_social_schema(c)
+  init_pricing_schema(c)
   # Forward-only, additive SQLite migration, preserving all V2 rows.
   pc={r['name'] for r in c.execute('PRAGMA table_info(products)')}
   if 'options_json' not in pc:c.execute("ALTER TABLE products ADD COLUMN options_json TEXT NOT NULL DEFAULT '{}'")
@@ -150,6 +154,9 @@ def staging_gate():
 
 @app.after_request
 def noindex_staging(resp):
+ if request.path.startswith(('/auth/','/login','/register','/account')):
+  resp.headers['Cache-Control']='no-store'
+  resp.headers['Referrer-Policy']='no-referrer'
  if STAGING_MODE and not supplier_checkout_live():
   resp.headers['X-Robots-Tag']='noindex, nofollow'
   resp.headers['Cache-Control']='no-store' if request.path.startswith(('/admin','/account','/login')) else 'private, no-cache'
@@ -358,11 +365,12 @@ def quote_shipping():
   provider_cart=any(p['source']=='safka' for p,_,_,_ in rows)
   fn=quote_safka_shipping if provider_cart else shipping_quote
   quoted=fn(conn,request.args.get('governorate',''),request.args.get('city',''),request.args.get('area',''))
+  offer=shipping_offer(conn,rows,quoted) if quoted is not None else None
  if quoted is None:return jsonify(ok=False,message='الشحن غير متاح للعنوان المحدد'),404
  quote_data=[request.args.get(k,'').strip() for k in ('governorate','city','area')]
- quote_data += [quoted[0],sum(p['price']*q for p,q,_,_ in rows),session.get('cart',{})]
+ quote_data += [offer['fee'],sum(p['price']*q for p,q,_,_ in rows),session.get('cart',{})]
  ticket=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').dumps(quote_data)
- return jsonify(ok=True,shipping_piastres=quoted[0],quote_token=ticket)
+ return jsonify(ok=True,products_total_piastres=sum(p['price']*q for p,q,_,_ in rows),shipping_piastres=offer['fee'],standard_shipping_piastres=offer['standard'],shipping_discount_piastres=offer['discount'],quote_token=ticket)
 
 @app.get('/api/shipping-governorates')
 def safka_shipping_governorates():
@@ -436,13 +444,6 @@ def checkout():
     if mixed_cart:raise ValueError('المنتجات دي تحتاج طلبات منفصلة؛ راجع السلة')
     rate=(quote_safka_shipping if supplier_cart else shipping_quote)(c,gov,city,area)
     if rate is None:raise ValueError('الشحن غير متاح للعنوان المحدد حاليًا. اختر منطقة مدعومة.')
-    if supplier_cart and supplier_checkout_live():
-     try:
-      quoted=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').loads(request.form.get('quote_token',''),max_age=1800)
-     except (BadSignature,SignatureExpired):
-      raise ValueError('حدّث تكلفة التوصيل قبل تأكيد الطلب؛ لم يتم إرسال أي طلب.') from None
-     expected=[gov,city,area,rate[0],sum(p['price']*q for p,q,_,_ in rows),session.get('cart',{})]
-     if quoted!=expected:raise ValueError('تغيّرت السلة أو تكلفة الشحن. راجع الإجمالي وأكد الطلب مرة أخرى.')
     fresh=[]
     quantities_by_product={}
     for p,q,choices,_ in rows:
@@ -454,7 +455,15 @@ def checkout():
      if p2['source']=='safka' and not supplier_stock_ready(p2,quantities_by_product[p2['id']]):
       raise ValueError('الكمية المتاحة غير مؤكدة أو لا تكفي لهذا المنتج؛ راجع السلة')
      fresh.append((p2,q,choices))
-    total=sum(p['price']*q for p,q,_ in fresh)+rate[0];ref='SH-'+secrets.token_hex(6).upper()
+    offer=shipping_offer(c,fresh,rate)
+    if supplier_cart and supplier_checkout_live():
+     try:
+      quoted=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').loads(request.form.get('quote_token',''),max_age=1800)
+     except (BadSignature,SignatureExpired):
+      raise ValueError('حدّث تكلفة التوصيل قبل تأكيد الطلب؛ لم يتم إرسال أي طلب.') from None
+     expected=[gov,city,area,offer['fee'],sum(p['price']*q for p,q,_ in fresh),session.get('cart',{})]
+     if quoted!=expected:raise ValueError('تغيّرت السلة أو تكلفة الشحن. راجع الإجمالي وأكد الطلب مرة أخرى.')
+    total=sum(p['price']*q for p,q,_ in fresh)+offer['fee'];ref='SH-'+secrets.token_hex(6).upper()
     full_address=' | '.join((city,area,address))
     pricing_doc=(shipping_pricing_document_id(c,gov,city,area,rate[0],rate[1]) if supplier_cart else None)
     city_row=(c.execute('SELECT city_id FROM safka_shipping_rates WHERE governorate=? AND city=? AND area=?',
@@ -463,9 +472,9 @@ def checkout():
     if supplier_cart and supplier_checkout_live() and (not pricing_doc or not supplier_city_id):
      raise ValueError('بيانات التوصيل غير مكتملة حاليًا. لم يتم إرسال الطلب.')
     cur=c.execute('''INSERT INTO orders(reference,user_id,customer,phone,governorate,address,shipping_fee,total,
-       checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id,safka_city_id)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,rate[0],total,key,
-       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id))
+       checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id,safka_city_id,shipping_standard_fee,shipping_discount,retained_profit_floor)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,offer['fee'],total,key,
+       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id,offer['standard'],offer['discount'],offer['floor']))
     if cur.rowcount==0:
      existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
      return redirect('/order/success/'+existing['reference'])
@@ -483,8 +492,8 @@ def checkout():
     queue_new_order(c,{
      'order_ref':ref,'customer_name':name,'customer_phone':phone,
      'governorate':gov,'city':city,'area':area,
-     'products_total_piasters':total-rate[0],
-     'shipping_piasters':rate[0],'total_piasters':total,
+     'products_total_piasters':total-offer['fee'],
+     'shipping_piasters':offer['fee'],'total_piasters':total,
      'items':[{'name':p['title'],'qty':q,'options':choices} for p,q,choices in fresh],
      'payment_method':'الدفع عند الاستلام',
     },recipients=recipients,enabled=os.getenv('SHOPY_WA_ENABLED')=='1')
@@ -568,7 +577,7 @@ def register():
    except Exception as exc:
     if isinstance(exc, sqlite3.IntegrityError) or (exc.__class__.__name__ == 'UniqueViolation' and exc.__class__.__module__.startswith('psycopg')):flash('البريد مستخدم بالفعل')
     else:raise
- return render_template('auth.html',mode='register')
+ return render_template('auth.html',mode='register',social_providers=configured_providers())
 @app.route('/admin/setup',methods=['GET','POST'])
 def setup_first_admin():
  # Disabled unless the owner explicitly configures a private one-time setup token.
@@ -602,7 +611,57 @@ def login():
   if u and check_password_hash(u['password'],request.form.get('password','')):
    return complete_customer_auth(u['id'],u['role'])
   flash('بيانات الدخول غير صحيحة')
- return render_template('auth.html',mode='login')
+ return render_template('auth.html',mode='login',social_providers=configured_providers())
+@app.post('/auth/<provider>/start')
+def social_start(provider):
+ if provider not in ('google','apple'):abort(404)
+ u=current_user()
+ if u and u['role']=='admin':
+  with db() as c:owner=c.execute('SELECT password FROM users WHERE id=?',(u['id'],)).fetchone()
+  if not check_password_hash(owner['password'],request.form.get('password','')):
+   flash('لتأمين حساب الإدارة، أكد كلمة المرور قبل ربط حساب خارجي.')
+   return redirect('/account')
+ attempts=session.get('oauth_attempts',[])
+ attempts=[t for t in attempts if isinstance(t,(int,float)) and 0<=time.time()-t<600]
+ if len(attempts)>=10:abort(429)
+ session['oauth_attempts']=attempts+[time.time()]
+ try:
+  flow,url=start_flow(provider,link_uid=u['id'] if u else None)
+ except SocialAuthError:
+  flash('التسجيل بالطريقة دي غير متاح حاليًا. تقدر تستخدم البريد وكلمة المرور.')
+  return redirect('/account' if u else '/login')
+ session['oauth_flow']=flow
+ return redirect(url)
+
+@app.get('/auth/callback')
+def social_callback():
+ flow=session.get('oauth_flow')
+ supplied=request.args.get('flow','')
+ if (not isinstance(flow,dict) or not isinstance(flow.get('state'),str)
+     or not hmac.compare_digest(supplied,flow['state'])
+     or not 0<=time.time()-flow.get('created',0)<=600):
+  flash('انتهت صلاحية محاولة الدخول. ابدأ تسجيل الدخول مرة أخرى.')
+  return redirect('/login')
+ session.pop('oauth_flow',None)  # One use, also on provider denial or failure.
+ if request.args.get('error'):
+  flash('لم يكتمل تسجيل الدخول. تقدر تعيد المحاولة.')
+  return redirect('/login')
+ if flow.get('link_uid') is not None and session.get('uid')!=flow['link_uid']:
+  abort(400)
+ try:
+  identity=exchange_identity(flow,request.args.get('code',''))
+  with db() as c:
+   u=resolve_account(c,identity,link_uid=flow.get('link_uid'),password_hash=generate_password_hash)
+ except SocialAuthError as exc:
+  flash(str(exc) if str(exc).startswith(('البريد','الحساب','لديك','ادخل')) else 'تعذر تأكيد تسجيل الدخول. حاول مرة أخرى.')
+  return redirect('/login')
+ except Exception as exc:
+  if isinstance(exc,sqlite3.IntegrityError) or exc.__class__.__name__=='UniqueViolation':
+   flash('الحساب مربوط بالفعل أو حدثت محاولة متزامنة. حاول تسجيل الدخول مجددًا.')
+   return redirect('/login')
+  raise
+ return complete_customer_auth(u['id'],u['role'])
+
 @app.post('/logout')
 def logout():session.clear();return redirect('/')
 @app.route('/account')
@@ -614,7 +673,8 @@ def account():
   ids=[o['id'] for o in orders]
   details=grouped(c,'order_items','order_id',ids,order='id')
   supplier_states={oid:rows[0] for oid,rows in grouped(c,'safka_order_outbox','order_id',ids).items() if rows}
- return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states,pager=pager)
+  linked={r['provider'] for r in c.execute('SELECT provider FROM social_identities WHERE user_id=?',(u['id'],))}
+ return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states,pager=pager,social_providers=configured_providers(),linked_providers=linked)
 @app.get('/admin/safka/order/<int:oid>/preview')
 @admin_only
 def preview_safka_order(oid):
@@ -835,6 +895,7 @@ def edit_product(pid):
    VALUES(?,?,?,?,?,?) ON CONFLICT(product_id) DO UPDATE SET title=excluded.title,
    description=excluded.description,category=excluded.category,price=excluded.price,
    options_json=excluded.options_json""",(pid,title,desc,category,price,json.dumps(options,ensure_ascii=False)))
+   c.execute("UPDATE market_pricing SET status='manual_override' WHERE product_id=?",(pid,))
    c.execute('UPDATE products SET title=?,description=?,price=?,options_json=?,category=? WHERE id=?',
              (title,desc,price,json.dumps(options,ensure_ascii=False),category,pid))
   else:
@@ -1240,6 +1301,65 @@ def check_safka_connection():
 @app.get('/admin/integrations')
 @admin_only
 def integrations_redirect():return redirect('/admin#integrations')
+
+@app.get('/admin/pricing')
+@admin_only
+def pricing_admin():
+ where="p.active=1 AND p.source='safka'";params=[]
+ term=request.args.get('q','').strip()[:80];status=request.args.get('status','')
+ if term:where+=' AND p.title LIKE ?';params.append('%'+term+'%')
+ if status in ('verified','cost_based','needs_review','cost_changed','manual_override'):
+  where+=" AND COALESCE(m.status,'needs_review')=?";params.append(status)
+ with db() as c:
+  source='FROM products p LEFT JOIN market_pricing m ON m.product_id=p.id WHERE '+where
+  items,pager=paginate(c,"SELECT p.*,m.status AS review_status,m.competitor_price,m.source_url,m.checked_at,m.notes,m.evidence_json "+source,'SELECT count(*) '+source,params,'p.id DESC',request.args.get('page'),30)
+  enabled=c.execute("SELECT value FROM store_settings WHERE key='margin_shipping_discount_enabled'").fetchone()
+ data=[]
+ for row in items:
+  value=dict(row)
+  try:value['sources']=json.loads(value.get('evidence_json') or '[]')
+  except ValueError:value['sources']=[]
+  data.append(value)
+ return render_template('pricing_admin.html',items=data,pager=pager,discount_enabled=bool(enabled and enabled['value']=='1'))
+
+@app.post('/admin/pricing/shipping-policy')
+@admin_only
+def pricing_shipping_policy():
+ with db() as c:c.execute("INSERT INTO store_settings(key,value) VALUES('margin_shipping_discount_enabled',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",('1' if request.form.get('enabled')=='1' else '0',))
+ flash('تم حفظ سياسة خصم الشحن.')
+ return redirect('/admin/pricing')
+
+@app.post('/admin/pricing/<int:pid>')
+@admin_only
+def approve_market_price(pid):
+ from datetime import datetime,timezone
+ from profit_pricing import minimum_sale_price
+ from urllib.parse import urlsplit
+ price=parse_money(request.form.get('price'));competitor=parse_money(request.form.get('competitor_price'))
+ url=request.form.get('source_url','').strip()[:2000];parts=urlsplit(url)
+ notes=request.form.get('notes','').strip()[:1500]
+ if parts.scheme!='https' or not parts.hostname or parts.username or len(notes)<10 or competitor<=0:abort(400)
+ with db() as c:
+  p=c.execute("SELECT * FROM products WHERE id=? AND source='safka'",(pid,)).fetchone()
+  if not p:abort(404)
+  if not isinstance(p['supplier_cost'],int) or price<minimum_sale_price(p['supplier_cost']):
+   flash('السعر أقل من حد الربح المتفق عليه أو التكلفة غير معروفة. راجع السعر.')
+   return redirect('/admin/pricing')
+  c.execute("""INSERT INTO market_pricing(product_id,target_price,verified_cost,competitor_price,source_url,checked_at,status,notes,previous_price)
+  VALUES(?,?,?,?,?,?,'verified',?,?) ON CONFLICT(product_id) DO UPDATE SET target_price=excluded.target_price,verified_cost=excluded.verified_cost,competitor_price=excluded.competitor_price,source_url=excluded.source_url,checked_at=excluded.checked_at,status='verified',basis='market',notes=excluded.notes,previous_price=excluded.previous_price""",(pid,price,p['supplier_cost'],competitor,url,datetime.now(timezone.utc).isoformat(),notes,p['price']))
+  c.execute('UPDATE products SET price=? WHERE id=?',(price,pid))
+ flash('تم اعتماد السعر مع حمايته أثناء المزامنة.')
+ return redirect('/admin/pricing')
+
+@app.get('/admin/social-login')
+@admin_only
+def social_login_setup():
+ from social_auth import config,auth_request
+ configured=config();external={}
+ if configured:
+  try:external=auth_request('settings').get('external',{})
+  except SocialAuthError:pass
+ return render_template('social_setup.html',social_providers=configured_providers(),external=external,auth_configured=bool(configured))
 
 @app.route('/robots.txt')
 def robots():return app.response_class('User-agent: *\nDisallow: /admin\nDisallow: /account\nDisallow: /checkout\nDisallow: /cart\nDisallow: /favorites\nDisallow: /assistant\nDisallow: /order\n',mimetype='text/plain')
