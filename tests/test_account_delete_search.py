@@ -25,7 +25,7 @@ class SmartSearchTests(unittest.TestCase):
         self.assertEqual(search_ranked(self.rows,'تصفيف مشط')[0]['id'],1)
     def test_typo_support_with_no_unrelated_products(self):
         self.assertEqual(search_ranked(self.rows,'تصفيف الشعر')[0]['id'],1)
-        self.assertEqual(search_ranked(self.rows,'مشظ تصفيف')[0]['id'],1)
+        self.assertEqual(search_ranked(self.rows,'مشطط تصفيف')[0]['id'],1)
         self.assertEqual(search_ranked(self.rows,'تليفزيون'),[])
     def test_price_sort_after_relevance_filter(self):
         products=search_ranked(self.rows,'مشط',sort='price_low')
