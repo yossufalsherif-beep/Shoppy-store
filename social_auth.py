@@ -15,7 +15,7 @@ import time
 import urllib.request
 from urllib.parse import urlencode, urlsplit
 
-PROVIDERS = ('google', 'apple')
+PROVIDERS = ('google',)  # Google-only; no new Apple sign-ins or links.
 
 class SocialAuthError(ValueError):
     pass

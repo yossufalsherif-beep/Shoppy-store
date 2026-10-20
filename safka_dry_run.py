@@ -35,9 +35,10 @@ def prepare_dry_run(conn, order_id):
             raise CatalogValidationError('Merchant price is below supplier cost: review before submission')
         items_total += item['customer_unit_price_piastres'] * item['quantity']
         supplier_items_total += cost * item['quantity']
-    try:validate_delivery_snapshot(raw,items_total,supplier_items_total)
+    try:validate_delivery_snapshot(raw,items_total,supplier_items_total,sum(x['quantity'] for x in raw['items']))
     except ValueError as exc:raise CatalogValidationError(str(exc)) from None
-    if items_total + buyer_ship != raw['customer_total_piastres']:
+    net_items_total=items_total-raw.get('bundle_discount',0)
+    if net_items_total + buyer_ship != raw['customer_total_piastres']:
         raise CatalogValidationError('Customer order total does not match saved item/shipping snapshots')
     return {
         'mode': 'DRY_RUN_ONLY',
@@ -50,7 +51,8 @@ def prepare_dry_run(conn, order_id):
         'governorate': raw['governorate'],
         'address': raw['address'],
         'items': raw['items'],
-        'customer_products_piastres': items_total,
+        'customer_products_piastres': net_items_total,
+        'bundle_discount_piastres': raw.get('bundle_discount',0),
         'customer_shipping_piastres': buyer_ship,
         'total_to_collect_piastres': raw['customer_total_piastres'],
         'estimated_supplier_products_piastres': supplier_items_total,

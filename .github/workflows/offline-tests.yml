@@ -1,0 +1,26 @@
+name: Offline Python checks
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout reviewed pull request
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install local test requirements
+        run: |
+          python3 -m pip install --user -r requirements.txt
+      - name: Verify Python syntax
+        run: python3 -m compileall -q app.py profit_pricing.py social_auth.py safka_bridge.py safka_dry_run.py shopy_notify.py tests
+      - name: Run offline test suite
+        env:
+          SHOPY_BUNDLE_OFFER_ENABLED: "0"
+          SHOPY_WA_ENABLED: "0"
+          SHOPY_SAFKA_ORDER_PUSH_ACTIVE: "0"
+        run: python3 -m unittest discover -s tests -p "test_*.py" -q

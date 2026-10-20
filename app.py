@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from catalog_quality import clean_description
-from profit_pricing import init_pricing_schema, shipping_offer
+from profit_pricing import init_pricing_schema, checkout_offer, displayed_product_price, bundle_enabled
 from social_auth import init_social_schema, configured_providers, start_flow, exchange_identity, resolve_account, SocialAuthError
 from ui_queries import paginate, price_filter, order_filters, grouped, ORDER_LABELS
 from safka_status import SUPPLIER_STATUS_LABELS, apply_order_status_event
@@ -228,7 +228,7 @@ def query_link(**updates):
 @app.context_processor
 def ui_helpers():
  return dict(asset_version=ASSET_VERSION,page_link=page_link,query_link=query_link,order_labels=ORDER_LABELS,
-             can_order=supplier_stock_ready,product_choices=product_choices,
+             can_order=supplier_stock_ready,product_choices=product_choices,shown_price=displayed_product_price,bundle_active=bundle_enabled(),
              supplier_status_labels=SUPPLIER_STATUS_LABELS,supplier_live=supplier_checkout_live())
 
 def safe_back_url():
@@ -253,6 +253,9 @@ def home():
   if low is not None and high is not None and low>high:raise ValueError('السعر من أكبر من السعر إلى؛ راجع النطاق.')
  except ValueError as exc:
   flash(str(exc));low=high=None
+ if bundle_enabled():
+  low=max(0,low-9500) if low is not None else None
+  high=high-9500 if high is not None else None
  for amount,operator in [(low,'>='),(high,'<=')]:
   if amount is not None:filters.append('price'+operator+'?');args.append(amount)
  order={'newest':'id DESC','price_low':'price ASC,id DESC','price_high':'price DESC,id DESC'}.get(request.args.get('sort'),'id DESC')
@@ -365,12 +368,18 @@ def quote_shipping():
   provider_cart=any(p['source']=='safka' for p,_,_,_ in rows)
   fn=quote_safka_shipping if provider_cart else shipping_quote
   quoted=fn(conn,request.args.get('governorate',''),request.args.get('city',''),request.args.get('area',''))
-  offer=shipping_offer(conn,rows,quoted) if quoted is not None else None
- if quoted is None:return jsonify(ok=False,message='الشحن غير متاح للعنوان المحدد'),404
+  if quoted is None:return jsonify(ok=False,message='الشحن غير متاح للعنوان المحدد'),404
+  try:offer=checkout_offer(conn,rows,quoted)
+  except ValueError as exc:return jsonify(ok=False,message=str(exc)),409
  quote_data=[request.args.get(k,'').strip() for k in ('governorate','city','area')]
- quote_data += [offer['fee'],sum(p['price']*q for p,q,_,_ in rows),session.get('cart',{})]
+ quote_data += [offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{})]
  ticket=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').dumps(quote_data)
- return jsonify(ok=True,products_total_piastres=sum(p['price']*q for p,q,_,_ in rows),shipping_piastres=offer['fee'],standard_shipping_piastres=offer['standard'],shipping_discount_piastres=offer['discount'],quote_token=ticket)
+ return jsonify(ok=True,products_total_piastres=offer['displayed_subtotal'],
+                merchandise_total_piastres=offer['merchandise_total'],
+                bundle_discount_piastres=offer['bundle_discount'],
+                bundle_unit_count=offer['bundle_unit_count'],
+                shipping_piastres=offer['fee'],standard_shipping_piastres=offer['standard'],
+                shipping_discount_piastres=offer['discount'],quote_token=ticket)
 
 @app.get('/api/shipping-governorates')
 def safka_shipping_governorates():
@@ -455,15 +464,15 @@ def checkout():
      if p2['source']=='safka' and not supplier_stock_ready(p2,quantities_by_product[p2['id']]):
       raise ValueError('الكمية المتاحة غير مؤكدة أو لا تكفي لهذا المنتج؛ راجع السلة')
      fresh.append((p2,q,choices))
-    offer=shipping_offer(c,fresh,rate)
+    offer=checkout_offer(c,fresh,rate)
     if supplier_cart and supplier_checkout_live():
      try:
       quoted=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').loads(request.form.get('quote_token',''),max_age=1800)
      except (BadSignature,SignatureExpired):
       raise ValueError('حدّث تكلفة التوصيل قبل تأكيد الطلب؛ لم يتم إرسال أي طلب.') from None
-     expected=[gov,city,area,offer['fee'],sum(p['price']*q for p,q,_ in fresh),session.get('cart',{})]
+     expected=[gov,city,area,offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{})]
      if quoted!=expected:raise ValueError('تغيّرت السلة أو تكلفة الشحن. راجع الإجمالي وأكد الطلب مرة أخرى.')
-    total=sum(p['price']*q for p,q,_ in fresh)+offer['fee'];ref='SH-'+secrets.token_hex(6).upper()
+    total=offer['merchandise_total']+offer['fee'];ref='SH-'+secrets.token_hex(6).upper()
     full_address=' | '.join((city,area,address))
     pricing_doc=(shipping_pricing_document_id(c,gov,city,area,rate[0],rate[1]) if supplier_cart else None)
     city_row=(c.execute('SELECT city_id FROM safka_shipping_rates WHERE governorate=? AND city=? AND area=?',
@@ -472,14 +481,14 @@ def checkout():
     if supplier_cart and supplier_checkout_live() and (not pricing_doc or not supplier_city_id):
      raise ValueError('بيانات التوصيل غير مكتملة حاليًا. لم يتم إرسال الطلب.')
     cur=c.execute('''INSERT INTO orders(reference,user_id,customer,phone,governorate,address,shipping_fee,total,
-       checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id,safka_city_id,shipping_standard_fee,shipping_discount,retained_profit_floor)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,offer['fee'],total,key,
-       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id,offer['standard'],offer['discount'],offer['floor']))
+       checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id,safka_city_id,shipping_standard_fee,shipping_discount,retained_profit_floor,bundle_discount,bundle_offer_version,bundle_unit_count)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,offer['fee'],total,key,
+       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id,offer['standard'],offer['discount'],offer['floor'],offer['bundle_discount'],offer['bundle_offer_version'],offer['bundle_unit_count']))
     if cur.rowcount==0:
      existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
      return redirect('/order/success/'+existing['reference'])
     for p,q,choices in fresh:
-     c.execute('INSERT INTO order_items(order_id,product_id,title,unit_price,quantity,variant_json,unit_cost) VALUES(?,?,?,?,?,?,?)',(cur.lastrowid,p['id'],p['title'],p['price'],q,json.dumps(choices,ensure_ascii=False),p['supplier_cost']))
+     c.execute('INSERT INTO order_items(order_id,product_id,title,unit_price,quantity,variant_json,unit_cost) VALUES(?,?,?,?,?,?,?)',(cur.lastrowid,p['id'],p['title'],displayed_product_price(p),q,json.dumps(choices,ensure_ascii=False),p['supplier_cost']))
     # Stage Safka order in the same transaction; submission requires verified API schema.
     queue_safka_order(c,cur.lastrowid)
     # Durable events: same transaction as saved order, one event per owner recipient.
@@ -614,7 +623,7 @@ def login():
  return render_template('auth.html',mode='login',social_providers=configured_providers())
 @app.post('/auth/<provider>/start')
 def social_start(provider):
- if provider not in ('google','apple'):abort(404)
+ if provider != 'google':abort(404)
  u=current_user()
  if u and u['role']=='admin':
   with db() as c:owner=c.execute('SELECT password FROM users WHERE id=?',(u['id'],)).fetchone()
@@ -1079,7 +1088,7 @@ def score_products(rows,query='',budget=None,category=''):
   if query_tokens & normalized_terms(' '.join(words)):expanded|=normalized_terms(' '.join(words))
  results=[]
  for p in rows:
-  if budget is not None and p['price']>budget:continue
+  if budget is not None and displayed_product_price(p)>budget:continue
   if category and p['category']!=category:continue
   title=normalized_terms(p['title']); desc=normalized_terms(p['description']);cat=normalized_terms(p['category'])
   matches=expanded&(title|desc|cat)
@@ -1132,7 +1141,7 @@ def assistant():
  engine='rules'
  # We only send non-personal product details + user query to the local Ollama server, if manually enabled.
  if os.environ.get('SHOPY_ASSISTANT_ENGINE')=='ollama' and query:
-  allowed=[p for p in products if (budget is None or p['price']<=budget) and (not category or p['category']==category)]
+  allowed=[p for p in products if (budget is None or displayed_product_price(p)<=budget) and (not category or p['category']==category)]
   refined=local_ai_recommend(allowed,query,budget,category)
   if refined is not None:matches=refined;engine='ollama'
  with db() as conn:

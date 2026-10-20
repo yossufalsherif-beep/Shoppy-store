@@ -112,3 +112,16 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .admin-feature-links{display:flex;flex-wrap:wrap;gap:12px;margin:16px 0}.pricing-review-list{display:grid;gap:14px;margin:24px 0}.pricing-review-list summary{cursor:pointer;display:flex;flex-direction:column;gap:6px}.pricing-review-list small,.pricing-review-list summary span{font-size:13px;color:var(--muted)}.pricing-review-list details[open]{border-color:var(--accent)}.delivery-discount strong{color:var(--accent)}[hidden]{display:none!important}
 
 .social-setup{min-width:0}.social-setup code{overflow-wrap:anywhere;word-break:break-word;white-space:normal}.social-setup li{margin-block:12px}.social-setup .panel{min-width:0}
+
+/* Dedicated customer-facing WhatsApp support shortcut; number is in link destination, not visible text. */
+.floating-support-link{position:fixed;left:20px;bottom:20px;z-index:40;display:inline-flex;align-items:center;gap:9px;padding:12px 19px;background:#246c55;color:#fff;border:2px solid #fff;box-shadow:0 6px 24px #153b292b;border-radius:999px;text-decoration:none;font-weight:700;font-size:13px;min-height:48px}
+.floating-support-link:hover,.floating-support-link:focus-visible{background:#17513f;color:white}
+@media(max-width:600px){.floating-support-link{left:12px;bottom:12px;padding:11px 15px;font-size:12px}}
+
+/* Bundle promotion uses the same restrained Shoppy palette on mobile and desktop. */
+.bundle-promo-banner{display:flex;align-items:center;justify-content:space-between;gap:22px;padding:24px 28px;margin:0 0 22px;border-radius:22px;background:linear-gradient(120deg,#e2f7ef,#fcf4df);border:1px solid #c0e6db}
+.bundle-promo-banner h2{font-size:clamp(21px,2.5vw,32px);margin:4px 0 8px;color:#17513f}
+.bundle-promo-banner p{margin:0;line-height:1.8;color:#295748}
+.bundle-promo-banner .bundle-promo-tag{font-size:12px;font-weight:800;color:#0b7562;border:1px solid #8acbb9;border-radius:999px;padding:8px 11px;white-space:nowrap}
+.bundle-promo-banner .btn{white-space:nowrap}
+@media(max-width:760px){.bundle-promo-banner{flex-direction:column;text-align:center;gap:12px;padding:20px 17px}.bundle-promo-banner .btn{width:100%}}
