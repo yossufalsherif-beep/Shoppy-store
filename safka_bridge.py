@@ -42,6 +42,9 @@ def free_product_slug(conn, title):
 
 def migrate_supplier_product_slugs(conn):
     """Keep redirects for past advertising product URLs."""
+    # Temporary rollback: Arabic slugs return 404 via current production routing.
+    # Keep legacy ASCII product URLs until end-to-end routing is verified.
+    return 0
     conn.execute("""CREATE TABLE IF NOT EXISTS product_slug_aliases(
         slug TEXT PRIMARY KEY,
         product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE)""")
