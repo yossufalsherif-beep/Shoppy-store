@@ -53,6 +53,18 @@
   }catch(error){feedback(error.message,'error');}
   finally{form.dataset.busy='0';if(button)button.disabled=false;}
  });
+ document.addEventListener('click',event=>{
+  const dialog=document.getElementById('account-delete-dialog');
+  if(!dialog)return;
+  if(event.target.closest('[data-open-account-delete]')){
+   if(typeof dialog.showModal==='function')dialog.showModal();
+   else dialog.setAttribute('open','');
+  }
+  if(event.target.closest('[data-close-account-delete]')){
+   if(typeof dialog.close==='function')dialog.close();
+   else dialog.removeAttribute('open');
+  }
+ });
  document.addEventListener('click',async event=>{
   const copy=event.target.closest('[data-copy]');if(!copy)return;
   try{await navigator.clipboard.writeText(copy.dataset.copy);feedback('تم نسخ كود الطلب.','success');}catch{feedback('كود الطلب: '+copy.dataset.copy,'success');}
