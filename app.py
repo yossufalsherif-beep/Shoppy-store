@@ -1088,7 +1088,7 @@ def score_products(rows,query='',budget=None,category=''):
   if query_tokens & normalized_terms(' '.join(words)):expanded|=normalized_terms(' '.join(words))
  results=[]
  for p in rows:
-  if budget is not None and p['price']>budget:continue
+  if budget is not None and displayed_product_price(p)>budget:continue
   if category and p['category']!=category:continue
   title=normalized_terms(p['title']); desc=normalized_terms(p['description']);cat=normalized_terms(p['category'])
   matches=expanded&(title|desc|cat)
@@ -1141,7 +1141,7 @@ def assistant():
  engine='rules'
  # We only send non-personal product details + user query to the local Ollama server, if manually enabled.
  if os.environ.get('SHOPY_ASSISTANT_ENGINE')=='ollama' and query:
-  allowed=[p for p in products if (budget is None or p['price']<=budget) and (not category or p['category']==category)]
+  allowed=[p for p in products if (budget is None or displayed_product_price(p)<=budget) and (not category or p['category']==category)]
   refined=local_ai_recommend(allowed,query,budget,category)
   if refined is not None:matches=refined;engine='ollama'
  with db() as conn:
