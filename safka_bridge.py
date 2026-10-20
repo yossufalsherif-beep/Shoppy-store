@@ -204,14 +204,23 @@ def normalize_product(raw):
         counts=[p.get('value') for p in available]
         if qty is None and all(isinstance(n,int) and not isinstance(n,bool) and n>=0 for n in counts):
             qty=sum(counts)
-        # Equal-priced supplier choices can use the existing choice field safely.
-        # Different-price properties must not be guessed from the parent price.
+        # Only variants priced at the product's verified base cost are
+        # sellable at its advertised price. More expensive properties must
+        # NEVER be sent under another property's price.
         if not options and len(available)>1:
             labels=[p.get('key') for p in available]
             if (all(isinstance(label,str) and label.strip() for label in labels)
-                and len(set(labels))==len(labels)
-                and all(egp_to_piastres(p.get('sale_price',cost/100))==cost for p in available)):
-                options={'الاختيار':labels}
+                and len(set(labels))==len(labels)):
+                same_price=[]
+                for property_row in available:
+                    raw_price=property_row.get('sale_price')
+                    if (raw_price is not None and
+                        egp_to_piastres(raw_price)==cost):
+                        same_price.append(property_row['key'])
+                if same_price:
+                    # Even one matched choice must be explicit when a supplier
+                    # has other, differently priced variants.
+                    options={'الاختيار':same_price}
     return {
         'supplier_id': sid, 'supplier_code': supplier_code, 'title': title, 'description': desc, 'category': category,
         'supplier_cost': cost, 'price': sale_price_piastres(cost), 'stock': qty,

@@ -134,6 +134,33 @@ class PricingTests(unittest.TestCase):
         row['variants']=[{'id':1,'size':'S'}]
         with self.assertRaises(CatalogValidationError):normalize_product(row)
 
+    def test_mixed_price_supplier_properties_only_show_variant_with_listing_price(self):
+        raw = {'_id':'675a00000000000000000001','name':'شنطة الشنيور والعدة المتكاملة',
+               'sale_price':870,'is_active':True,
+               'properties':[
+                   {'_id':'675a00000000000000000002','key':'عدد 28 قطعة',
+                    'value':8,'sale_price':870,'is_available':True},
+                   {'_id':'675a00000000000000000003','key':'عدد 33 قطعة',
+                    'value':8,'sale_price':1150,'is_available':True}]}
+        normalized=normalize_product(raw)
+        self.assertEqual(normalized['supplier_cost'],87000)
+        self.assertEqual(normalized['price'],116000)
+        self.assertEqual(normalized['options'],{'الاختيار':['عدد 28 قطعة']})
+        # The catalog importer must persist the safe choice during an owner/overnight sync.
+        with database() as conn:
+            import_products(conn,[raw])
+            row=conn.execute("SELECT price, options_json FROM products WHERE source='safka'").fetchone()
+            self.assertEqual(row['price'],116000)
+            self.assertEqual(json.loads(row['options_json']),{'الاختيار':['عدد 28 قطعة']})
+
+    def test_variant_options_are_not_guessed_without_exact_supplier_prices(self):
+        raw={'id':'sample','name':'مستلزمات','sale_price':870,
+             'properties':[{'key':'نسخة أ','value':10},
+                           {'key':'نسخة ب','value':10,'sale_price':1150}]}
+        self.assertEqual(normalize_product(raw)['options'],{})
+        raw['properties'][0]['sale_price']=870
+        self.assertEqual(normalize_product(raw)['options'],{'الاختيار':['نسخة أ']})
+
     def test_categories_preserved(self):
         p=fake_product()
         p['categories']=[{'name':'ملابس'},{'name':'أطفال'}]
