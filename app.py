@@ -364,6 +364,7 @@ def change_cart_quantity():
  wants_json='application/json' in request.headers.get('Accept','')
  def error(message,status=400):
   if wants_json:return jsonify(ok=False,message=message),status
+  if status in (400,404):abort(status,message)
   flash(message)
   return redirect('/cart')
  if key not in cart:return error('المنتج غير موجود في السلة')
