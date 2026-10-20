@@ -187,3 +187,17 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .account-delete-dialog input{width:100%;padding:10px 12px;border:1px solid var(--stroke);border-radius:8px}
 .account-delete-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:12px}
 .account-delete-actions .btn{min-width:116px}
+
+/* OAuth providers and the accessible password visibility control */
+.social-facebook:not(:disabled){background:#f3f7ff;color:#1765bd;border-color:#c9d9f7}
+.social-facebook:not(:disabled):hover{background:#e7f0ff}
+.facebook-mark{display:inline-grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#1877f2;color:#fff;font:bold 19px/1 Arial,sans-serif;padding-top:3px;direction:ltr}
+.password-field{display:grid;gap:7px}
+.password-control{position:relative;width:100%}
+.password-control input{width:100%;padding-inline-start:100px}
+.password-visibility-toggle{position:absolute;inset-inline-start:6px;top:50%;transform:translateY(-50%);border:0;border-radius:8px;background:#eff5f4;color:#245b62;padding:7px 9px;display:inline-flex;align-items:center;gap:4px;min-height:36px;font-size:12px;font-weight:700}
+.password-visibility-toggle:hover{background:#e1eeea}
+.password-visibility-toggle:focus-visible{outline:3px solid #087887;outline-offset:2px}
+.password-visibility-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8}
+.password-eye-slash{display:none}
+.password-visibility-toggle.is-visible .password-eye-slash{display:block}
