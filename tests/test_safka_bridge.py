@@ -230,14 +230,14 @@ class CatalogDbTests(unittest.TestCase):
         self.c.execute('INSERT INTO order_items(order_id,product_id,title,quantity) VALUES(?,?,?,?)',(1,1,'مدوي',1))
         self.assertFalse(queue_safka_order(self.c,1))
 
-    def test_stock_stale_blocks(self):
+    def test_last_verified_stock_survives_sync_age_until_new_supplier_check(self):
         import_products(self.c,[fake_product('S1')])
         p=self.c.execute("SELECT * FROM products WHERE source='safka'").fetchone()
         self.assertTrue(supplier_stock_ready(p,1))
         self.assertFalse(supplier_stock_ready(p,500))
         self.c.execute('UPDATE products SET supplier_last_sync=? WHERE id=?',
                        ((datetime.now(timezone.utc)-timedelta(days=5)).isoformat(),p['id']))
-        self.assertFalse(supplier_stock_ready(self.c.execute('SELECT * FROM products WHERE id=?',(p['id'],)).fetchone()))
+        self.assertTrue(supplier_stock_ready(self.c.execute('SELECT * FROM products WHERE id=?',(p['id'],)).fetchone()))
 
     def test_response_list_shapes(self):
         self.assertEqual(_extract_list({'data':{'products':[1,2]}},'products'),[1,2])

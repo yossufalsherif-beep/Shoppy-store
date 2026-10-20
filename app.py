@@ -14,7 +14,7 @@ from ui_queries import paginate, price_filter, order_filters, grouped, ORDER_LAB
 from safka_status import SUPPLIER_STATUS_LABELS, apply_order_status_event
 from urllib.parse import urlencode
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
-from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, CatalogValidationError
+from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, migrate_supplier_product_slugs, CatalogValidationError
 from safka_dry_run import prepare_dry_run
 from safka_live_orders import (canonical_order, load_contract, build_payload,
     submit_payload, claim_one_test_order, record_outcome, OrderContractError)
@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS shipping_zones (id INTEGER PRIMARY KEY,governorate TE
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(active,category);
 CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);''')
   init_safka_schema(c)
+  migrate_supplier_product_slugs(c)
   c.executescript("""CREATE TABLE IF NOT EXISTS favorites(
      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -273,12 +274,13 @@ def product(slug):
  capture_campaign()
  with db() as c:
   p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(slug,)).fetchone()
-  if not p:abort(404)
+  if not p:
+   alias=c.execute('SELECT product_id FROM product_slug_aliases WHERE slug=?',(slug,)).fetchone()
+   if alias:
+    moved=c.execute("SELECT slug FROM products WHERE id=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(alias['product_id'],)).fetchone()
+    if moved:return redirect('/products/'+moved['slug'],code=301)
+   abort(404)
   others=c.execute("SELECT * FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
- if p['source']=='safka' and os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1':
-  from safka_checkout import refresh_product
-  try:p=refresh_product(db,p)
-  except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):pass
  with db() as c:
   media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
   user=current_user()
@@ -359,25 +361,32 @@ def change_cart_quantity():
  key=request.form.get('key','')
  action=request.form.get('action','')
  cart=session.get('cart',{})
- if action not in ('increase','decrease') or key not in cart:abort(400)
+ wants_json='application/json' in request.headers.get('Accept','')
+ def error(message,status=400):
+  if wants_json:return jsonify(ok=False,message=message),status
+  if status in (400,404):abort(status,message)
+  flash(message)
+  return redirect('/cart')
+ if key not in cart:return error('المنتج غير موجود في السلة')
  pid,_=decoded_cart_key(key)
  previous=cart[key]
- if pid is None or type(previous) is not int or not 1<=previous<=99:abort(400)
+ if pid is None or type(previous) is not int or not 1<=previous<=99:return error('بيانات السلة غير صحيحة')
+ if action not in ('increase','decrease'):return error('اختيار تعديل الكمية غير صحيح')
  if action=='decrease':
   if previous==1:cart.pop(key)
   else:cart[key]=previous-1
  else:
-  if previous>=99:
-   flash('الحد الأقصى 99 قطعة من نفس الاختيار')
-   return redirect('/cart')
+  if previous>=99:return error('الحد الأقصى 99 قطعة من نفس الاختيار',422)
   with db() as c:p=c.execute('SELECT * FROM products WHERE id=? AND active=1',(pid,)).fetchone()
-  if not p:abort(404)
+  if not p:return error('المنتج غير متاح حاليًا',404)
   combined=previous+1+sum(q for k,q in cart.items() if k!=key and type(q) is int and decoded_cart_key(str(k))[0]==pid)
   if p['source']=='safka' and not supplier_stock_ready(p,combined):
-   flash('الكمية المطلوبة غير متوفرة حاليًا؛ اختار كمية أقل')
-   return redirect('/cart')
+   return error('الكمية المطلوبة غير متوفرة حاليًا؛ اختار كمية أقل',409)
   cart[key]=previous+1
  session['cart']=cart
+ if wants_json:
+  return jsonify(ok=True,cart_count=sum(cart.values()),
+                 cart_html=render_template('cart.html',rows=cart_data()))
  return redirect('/cart')
 
 @app.post('/cart/remove')
@@ -411,11 +420,7 @@ def quote_shipping():
 
 @app.get('/api/shipping-governorates')
 def safka_shipping_governorates():
- from safka_checkout import ensure_shipping
- try:
-  ensure_shipping(db)
- except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):
-  return jsonify(ok=False,message='تعذر تحميل مناطق التوصيل حاليًا. حاول مرة أخرى بعد قليل.'),503
+ # Serve the last owner/overnight-verified snapshot. Customer GETs never sync.
  with db() as conn:
   rates=conn.execute('SELECT DISTINCT governorate FROM safka_shipping_rates ORDER BY governorate').fetchall()
  return jsonify(ok=True,governorates=[r['governorate'] for r in rates])
@@ -440,17 +445,10 @@ def checkout():
  if not session.get('checkout_key'):session['checkout_key']=secrets.token_urlsafe(24)
  supplier_cart=any(p['source']=='safka' for p,_,_,_ in rows)
  mixed_cart=supplier_cart and any(p['source']!='safka' for p,_,_,_ in rows)
- shipping_error=False
- if supplier_cart and os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1':
-  from safka_checkout import ensure_shipping
-  try:ensure_shipping(db)
-  except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):
-   shipping_error=True
-   flash('تعذر تحديث مناطق وأسعار التوصيل الآن. حاول مرة أخرى بعد قليل.')
+ # Customer visits use the stable shipping snapshot, not supplier API sync.
  with db() as c:
   rates=c.execute('SELECT DISTINCT governorate FROM safka_shipping_rates ORDER BY governorate').fetchall() if supplier_cart else c.execute('SELECT * FROM shipping ORDER BY governorate').fetchall()
  if request.method=='POST':
-  if shipping_error:return redirect('/checkout')
   if len(rows)!=len(session.get('cart',{})):
    flash('السلة فيها منتج لم يعد متاحًا أو بياناته قديمة. راجع السلة قبل تأكيد الطلب.')
    return redirect('/cart')
@@ -467,11 +465,7 @@ def checkout():
    try:
     checked_details=verify_checkout_products(rows)
    except (OrderContractError,CatalogValidationError,ValueError,OSError,TypeError,KeyError):
-    from safka_checkout import refresh_product
-    for product,_,_,_ in rows:
-     try:refresh_product(db,product,force=True)
-     except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):pass
-    flash('تعذر تأكيد توفر أحد المنتجات أو تغيّر سعره. لم يتم إرسال طلب؛ راجع السلة وحاول مرة أخرى.')
+    flash('تعذر تأكيد توفر أحد المنتجات أو تغيّر سعره لدى المورد. لم يتم إرسال طلب؛ راجع السلة وحاول مرة أخرى.')
     return redirect('/cart')
   try:
    with db() as c:
@@ -1199,6 +1193,47 @@ def safka_incoming_hook(kind,token):
   # can update supplier facts. Customer names/phones/amounts in the event are ignored.
   with db() as conn:apply_order_status_event(conn,data)
  return ('',202)
+
+
+@app.get('/internal/safka/nightly')
+def safka_nightly_sync():
+ # Vercel Cron provides this header only when a CRON_SECRET is configured.
+ expected=os.environ.get('CRON_SECRET','')
+ offered=request.headers.get('Authorization','')
+ if len(expected)<24 or not hmac.compare_digest(offered,'Bearer '+expected):
+  abort(401)
+ if os.environ.get('SHOPY_SAFKA_READ_ENABLED')!='1':
+  return jsonify(ok=False,message='Supplier API reads not enabled'),503
+ api_key=os.environ.get('SHOPY_SAFKA_API_KEY','').strip()
+ if len(api_key)<12:
+  return jsonify(ok=False,message='Supplier API is not configured'),503
+ from safka_admin_sync import api_page,checked_products,sync_product_page,sync_shipping_snapshot
+ from safka_checkout import shipping_snapshot
+ started=time.monotonic()
+ counts={'pages':0,'products':0,'shipping':0,'complete':False}
+ try:
+  with db() as conn:
+   p=conn.execute("SELECT value FROM store_settings WHERE key='safka_admin_next_page'").fetchone()
+   next_page=int(p['value']) if p else 1
+  for _ in range(100):
+   # Leave buffer for Vercel Function completion; continue unfinished scans tomorrow.
+   if time.monotonic()-started>170:break
+   envelope,records=api_page(api_key,'/api/v1/public/products','products',page=next_page,size=50,timeout=8)
+   pages,size=checked_products(envelope,records,next_page)
+   with db() as conn:result=sync_product_page(conn,records,next_page,pages)
+   counts['pages']+=1
+   counts['products']+=size
+   if result['cycle_complete']:
+    counts['complete']=True
+    break
+   next_page=result['next_page']
+  if time.monotonic()-started<185:
+   rates=shipping_snapshot(api_key)
+   with db() as conn:counts['shipping']=sync_shipping_snapshot(conn,rates)['updated']
+  return jsonify(ok=True,**counts)
+ except (ValueError,OSError,TypeError,KeyError,CatalogValidationError) as exc:
+  # Existing verified catalog and rates are retained; no customer-facing warning.
+  return jsonify(ok=False,error_type=type(exc).__name__,**counts),502
 
 
 @app.post('/admin/safka/sync')

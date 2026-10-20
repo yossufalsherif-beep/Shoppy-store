@@ -14,10 +14,20 @@
   const button=event.submitter||form.querySelector('button[type="submit"]');
   form.dataset.busy='1';if(button)button.disabled=true;
   try{
-   const response=await fetch(form.action,{method:'POST',body:new FormData(form),credentials:'same-origin',headers:{Accept:'application/json'}});
+   const body=new FormData(form);
+   // Submitter's + / - value is not included in FormData(form) by all browsers.
+   if(form.dataset.async==='quantity'&&button?.name)body.set(button.name,button.value);
+   const response=await fetch(form.action,{method:'POST',body,credentials:'same-origin',headers:{Accept:'application/json'}});
    if(!response.headers.get('content-type')?.includes('application/json'))throw new Error('تعذر إتمام العملية. حدّث الصفحة وحاول مرة أخرى.');
    const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.message||'حاول مرة أخرى.');
    document.querySelectorAll('.cart-badge').forEach(b=>b.textContent=data.cart_count);
+   if(form.dataset.async==='quantity'){
+    const updated=new DOMParser().parseFromString(data.cart_html||'', 'text/html').getElementById('cart-body');
+    const current=document.getElementById('cart-body');
+    if(!updated||!current)throw new Error('تعذر تحديث السلة. حاول مرة أخرى.');
+    current.replaceWith(document.importNode(updated,true));
+    return;
+   }
    if(form.dataset.async==='favorite'){
     document.querySelectorAll('form[data-async="favorite"]').forEach(other=>{
      if(other.action!==form.action)return;

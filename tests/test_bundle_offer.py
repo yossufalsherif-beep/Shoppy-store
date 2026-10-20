@@ -270,5 +270,75 @@ class TwoPieceOfferTests(unittest.TestCase):
             self.assertNotIn(b'mini-promo-cart', self.client.get('/cart').data)
             self.assertNotIn(b'mini-promo-product', self.client.get('/products/' + slug).data)
 
+
+    def test_cart_quantity_json_updates_without_a_redirect(self):
+        with self.client.session_transaction() as sess:
+            key = next(iter(sess['cart']))
+        for action,expected_count,expected_discount in (
+            ('increase',2,9500),('increase',3,19000),
+            ('decrease',2,9500),('decrease',1,0),
+        ):
+            with self.subTest(action=action, count=expected_count):
+                response=self.client.post('/cart/quantity',data={
+                    'csrf':self.token(),'key':key,'action':action
+                },headers={'Accept':'application/json'})
+                self.assertEqual(response.status_code,200)
+                self.assertTrue(response.json['ok'])
+                self.assertEqual(response.json['cart_count'],expected_count)
+                self.assertIn('id="cart-body"',response.json['cart_html'])
+                self.assertIn('class="cart-quantity-control"',response.json['cart_html'])
+                self.assertIn('data-async="quantity"',response.json['cart_html'])
+                self.requote()
+                self.assertEqual(self.quote['bundle_discount_piastres'],expected_discount)
+
+    def test_cart_ajax_rejection_does_not_change_cart(self):
+        with self.client.session_transaction() as sess:
+            key=next(iter(sess['cart']))
+        response=self.client.post('/cart/quantity',data={
+            'csrf':self.token(),'key':key,'action':'invalid'
+        },headers={'Accept':'application/json'})
+        self.assertEqual(response.status_code,400)
+        self.assertFalse(response.json['ok'])
+        with self.client.session_transaction() as sess:
+            self.assertEqual(sess['cart'][key],1)
+
+    def test_product_and_checkout_gets_never_refresh_safka(self):
+        with store.db() as conn:
+            slug=conn.execute('SELECT slug FROM products WHERE id=1').fetchone()['slug']
+        with patch.dict(os.environ, {'SHOPY_SAFKA_READ_ENABLED':'1'}), \
+             patch('safka_checkout.refresh_product',side_effect=AssertionError('supplier product refresh')), \
+             patch('safka_checkout.ensure_shipping',side_effect=AssertionError('supplier shipping refresh')):
+            self.assertEqual(self.client.get('/products/'+slug).status_code,200)
+            self.assertEqual(self.client.get('/api/shipping-governorates').status_code,200)
+            self.assertEqual(self.client.get('/checkout').status_code,200)
+
+    def test_safka_product_slug_migrates_and_old_ad_url_redirects(self):
+        old='safka-675aoldcode'
+        with store.db() as conn:
+            conn.execute('UPDATE products SET slug=? WHERE id=1',(old,))
+        store.init()
+        with store.db() as conn:
+            renamed=conn.execute('SELECT title,slug FROM products WHERE id=1').fetchone()
+            self.assertNotEqual(renamed['slug'],old)
+            self.assertNotIn('safka-',renamed['slug'])
+        old_response=self.client.get('/products/'+old)
+        self.assertEqual(old_response.status_code,301)
+        from urllib.parse import unquote
+        self.assertEqual(unquote(old_response.location),'/products/'+renamed['slug'])
+        fresh=self.client.get(old_response.location)
+        self.assertEqual(fresh.status_code,200)
+        self.assertIn(renamed['title'].encode('utf-8'),fresh.data)
+        # Second migration is idempotent; won't rename existing marketing links again.
+        store.init()
+        with store.db() as conn:
+            self.assertEqual(conn.execute('SELECT slug FROM products WHERE id=1').fetchone()['slug'],renamed['slug'])
+
+    def test_nightly_sync_requires_cron_secret_even_if_endpoint_known(self):
+        with patch.dict(os.environ, {'CRON_SECRET':'a'*32}, clear=False):
+            without=self.client.get('/internal/safka/nightly')
+            self.assertEqual(without.status_code,401)
+            wrong=self.client.get('/internal/safka/nightly',headers={'Authorization':'Bearer '+'b'*32})
+            self.assertEqual(wrong.status_code,401)
+
 if __name__=='__main__':
     unittest.main()
