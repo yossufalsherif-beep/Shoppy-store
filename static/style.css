@@ -162,3 +162,10 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .mini-promo-product{margin:12px 0 3px}
 .mini-promo-cart{margin:-3px 0 16px}
 @media(max-width:740px){.mini-promo{gap:9px;padding:11px}.mini-promo-icon{width:30px;height:30px;font-size:18px}.mini-promo-content strong{font-size:13px}}
+
+/* Reuse the homepage promotion wording in the cart without pressure to add items. */
+.mini-promo-cart .mini-promo-title{font-size:16px;line-height:1.45}
+.mini-promo-cart .mini-promo-title span{color:#b85c19}
+.mini-promo-cart .mini-promo-lead{font-size:14px;font-weight:650;color:#18573f;margin:6px 0}
+.mini-promo-cart p strong{display:inline;font-size:inherit;color:#b85c19}
+.mini-promo-cart .mini-promo-note{font-size:12px;color:#5b7466}

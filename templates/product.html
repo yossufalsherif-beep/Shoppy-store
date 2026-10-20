@@ -46,12 +46,12 @@
     <small>({{customer_rating.count}} تقييم من عملائنا)</small>
    </a>
   {% endif %}
-  <div class="price-block"><strong>{{money(shown_price(p))}} <small>ج.م</small></strong><span>{{'خصم إضافي للقطعة الثانية وما بعدها عند الشراء' if bundle_active else 'السعر غير شامل الشحن'}}</span></div>
+  <div class="price-block"><strong>{{money(shown_price(p))}} <small>ج.م</small></strong><span>{{'شحن القطعة الواحدة 50 جنيه' if bundle_active else 'السعر غير شامل الشحن'}}</span></div>
   {% if bundle_active %}
   <aside class="mini-promo mini-promo-product" aria-label="عرض خاص عند شراء أكثر من قطعة">
    <span class="mini-promo-icon" aria-hidden="true">🎁</span>
-   <div class="mini-promo-content"><strong>اشتري قطعتين أو أكتر: خصم 95 جنيه + شحن مجاني</strong>
-    <details class="mini-promo-details"><summary>تفاصيل العرض</summary><p>خصم 95 جنيه على كل قطعة إضافية بعد الأولى، حتى لو اشتريت نفس المنتج مرتين. الشحن مجاني مع قطعتين أو أكتر للمناطق المدعومة. القطعة الواحدة شحنها 50 جنيه.</p></details>
+   <div class="mini-promo-content"><strong>خصم 95 جنيه على كل قطعة إضافية بعد الأولى، وشحن مجاني من قطعتين.</strong>
+    <details class="mini-promo-details"><summary>تفاصيل العرض</summary><p>العرض يسري حتى لو اشتريت نفس المنتج مرتين. للقطعة الواحدة، الشحن 50 جنيه للمناطق المدعومة.</p></details>
    </div>
   </aside>
   {% endif %}
