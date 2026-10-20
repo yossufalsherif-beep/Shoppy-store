@@ -4,12 +4,21 @@
 <div class="auth-panel"><span class="eyebrow">أهلًا بيك</span><h1>{{'إنشاء حساب جديد' if mode=='register' else 'تسجيل الدخول'}}</h1>
 <p>{{'سجل بياناتك عشان تعرف تتابع طلباتك من حسابك.' if mode=='register' else 'ادخل بيانات حسابك لمتابعة طلباتك وإتمام الشراء.'}}</p>
 <div class="social-login" aria-label="طرق تسجيل الدخول">
-{% for provider,label in [('google','Google')] %}
-<form method="post" action="/auth/{{provider}}/start"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline btn-wide social-button social-{{provider}}" {% if not social_providers.get(provider) %}disabled title="سيكون متاحًا بعد اكتمال التفعيل"{% endif %}>المتابعة باستخدام {{label}}{% if not social_providers.get(provider) %} <small>قريبًا</small>{% endif %}</button></form>
+{% for provider,label in [('google','Google'),('facebook','Facebook')] %}
+<form method="post" action="/auth/{{provider}}/start"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline btn-wide social-button social-{{provider}}" {% if not social_providers.get(provider) %}disabled title="سيكون متاحًا بعد اكتمال التفعيل"{% endif %}>{% if provider=='facebook' %}<span class="facebook-mark" aria-hidden="true">f</span>{% endif %}المتابعة باستخدام {{label}}{% if not social_providers.get(provider) %} <small>غير مفعّل بعد</small>{% endif %}</button></form>
 {% endfor %}</div><div class="auth-divider">أو استخدم البريد الإلكتروني</div>
 <form method="post" class="auth-form"><input type="hidden" name="csrf" value="{{csrf}}">
 <label>البريد الإلكتروني<input type="email" name="email" autocomplete="email" placeholder="you@example.com" required></label>
-<label>كلمة المرور<input type="password" name="password" autocomplete="{{'new-password' if mode=='register' else 'current-password'}}" {% if mode=='register' %}minlength="10"{% endif %} required></label>
+<div class="password-field">
+ <label for="auth-password">كلمة المرور</label>
+ <div class="password-control">
+  <input id="auth-password" type="password" name="password" autocomplete="{{'new-password' if mode=='register' else 'current-password'}}" {% if mode=='register' %}minlength="10"{% endif %} required>
+  <button class="password-visibility-toggle" type="button" data-toggle-password="auth-password" aria-controls="auth-password" aria-label="إظهار كلمة المرور" aria-pressed="false" title="إظهار كلمة المرور">
+   <svg class="password-eye" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.75"/><path class="password-eye-slash" d="M3 3l18 18"/></svg>
+   <span class="password-visibility-text">إظهار</span>
+  </button>
+ </div>
+</div>
 <button class="btn btn-dark btn-wide">{{'إنشاء حساب' if mode=='register' else 'تسجيل الدخول'}} ←</button></form>
 <div class="guest-browse"><p>تقدر تتصفح كل المنتجات من غير حساب. إتمام الطلب ومتابعته يحتاجان تسجيل الدخول.</p><a class="btn btn-outline btn-wide" href="/">تصفح المتجر بدون تسجيل دخول ←</a></div>
 <p><a class="text-link" href="{{'/login' if mode=='register' else '/register'}}">{{'عندك حساب؟ سجل دخول' if mode=='register' else 'معندكش حساب؟ أنشئ حساب'}}</a></p></div>
