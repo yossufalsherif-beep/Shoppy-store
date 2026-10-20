@@ -354,6 +354,32 @@ def cart_data():
 @app.route('/cart')
 def cart():return render_template('cart.html',rows=cart_data())
 
+@app.post('/cart/quantity')
+def change_cart_quantity():
+ key=request.form.get('key','')
+ action=request.form.get('action','')
+ cart=session.get('cart',{})
+ if action not in ('increase','decrease') or key not in cart:abort(400)
+ pid,_=decoded_cart_key(key)
+ previous=cart[key]
+ if pid is None or type(previous) is not int or not 1<=previous<=99:abort(400)
+ if action=='decrease':
+  if previous==1:cart.pop(key)
+  else:cart[key]=previous-1
+ else:
+  if previous>=99:
+   flash('الحد الأقصى 99 قطعة من نفس الاختيار')
+   return redirect('/cart')
+  with db() as c:p=c.execute('SELECT * FROM products WHERE id=? AND active=1',(pid,)).fetchone()
+  if not p:abort(404)
+  combined=previous+1+sum(q for k,q in cart.items() if k!=key and type(q) is int and decoded_cart_key(str(k))[0]==pid)
+  if p['source']=='safka' and not supplier_stock_ready(p,combined):
+   flash('الكمية المطلوبة غير متوفرة حاليًا؛ اختار كمية أقل')
+   return redirect('/cart')
+  cart[key]=previous+1
+ session['cart']=cart
+ return redirect('/cart')
+
 @app.post('/cart/remove')
 def remove():
  key=request.form.get('key','');cart=session.get('cart',{});cart.pop(key,None);session['cart']=cart
@@ -378,8 +404,10 @@ def quote_shipping():
                 merchandise_total_piastres=offer['merchandise_total'],
                 bundle_discount_piastres=offer['bundle_discount'],
                 bundle_unit_count=offer['bundle_unit_count'],
-                shipping_piastres=offer['fee'],standard_shipping_piastres=offer['standard'],
-                shipping_discount_piastres=offer['discount'],quote_token=ticket)
+                shipping_piastres=offer['fee'],
+                standard_shipping_piastres=(offer['fee'] if offer['bundle_offer_version']==3 else offer['standard']),
+                shipping_discount_piastres=(0 if offer['bundle_offer_version']==3 else offer['discount']),
+                quote_token=ticket)
 
 @app.get('/api/shipping-governorates')
 def safka_shipping_governorates():

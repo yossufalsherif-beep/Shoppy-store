@@ -77,7 +77,8 @@ def preserve_market_price(conn,pid,cost):
 BUNDLE_PREMIUM_PIASTRES = 9500
 # v2 promotion permits reduced contribution for expensive destinations, while
 # blocking sales below goods + real supplier shipping. Historical v1 keeps its floor.
-BUNDLE_OFFER_VERSION = 2
+BUNDLE_OFFER_VERSION = 3
+SINGLE_ITEM_SHIPPING_PIASTRES = 5000  # Fixed EGP 50 for any supported destination.
 MIN_BUNDLE_CONTRIBUTION_PIASTRES = 100  # At least EGP 1 before ads, returns, and other overhead.
 
 def bundle_enabled():
@@ -89,9 +90,10 @@ def displayed_product_price(product):
 def checkout_offer(conn, rows, rate):
     """Compute a verified server-side quote without changing stored prices.
 
-    The single-item shipping reduction is separately configurable. New bundle
-    orders may earn less than the legacy 15% margin floor in expensive regions,
-    but must still pay for goods, supplier shipping, and the minimum contribution.
+    For one item the customer pays a flat EGP 50 on any supported route, with no
+    displayed delivery discount. The actual provider cost is still accounted for.
+    New bundle orders may earn less than the legacy 15% margin floor, but must
+    cover the supplier product and shipping costs plus a positive contribution.
     """
     if not bundle_enabled():
         legacy = shipping_offer(conn, rows, rate)
@@ -116,14 +118,10 @@ def checkout_offer(conn, rows, rate):
     if units >= 2:
         delivery = 0
     else:
-        raw_reduction = os.getenv('SHOPY_SINGLE_ITEM_SHIPPING_REDUCTION_EGP', '0')
-        try:
-            reduction = int(raw_reduction)
-        except (ValueError, TypeError):
-            raise ValueError('Invalid merchant shipping subsidy') from None
-        if not 0 <= reduction <= 500:
-            raise ValueError('Invalid merchant shipping subsidy')
-        delivery = min(standard, max(100, standard - reduction * 100))
+        # Flat customer tariff; never advertise the internal carrier subsidy.
+        if standard < SINGLE_ITEM_SHIPPING_PIASTRES:
+            raise ValueError('Verified shipping tariff is inconsistent with the fixed delivery rate')
+        delivery = SINGLE_ITEM_SHIPPING_PIASTRES
     floor = MIN_BUNDLE_CONTRIBUTION_PIASTRES
     supplier_goods = sum(p['supplier_cost'] * q for p, q, *_ in rows)
     if merchandise + delivery - supplier_goods - supplier_shipping < floor:
@@ -136,7 +134,7 @@ def checkout_offer(conn, rows, rate):
     }
 
 def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
-    if raw.get('bundle_offer_version', 0) in (1, 2):
+    if raw.get('bundle_offer_version', 0) in (1, 2, 3):
         standard=raw['shipping_standard_fee']
         supplier=raw['supplier_shipping_piastres']
         buyer=raw['customer_shipping_piastres']
@@ -150,6 +148,8 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
             raise ValueError('Promotional shipping snapshots do not reconcile')
         if bundle_discount != BUNDLE_PREMIUM_PIASTRES*(units-1) or (units>=2 and buyer!=0) or (units==1 and buyer<100):
             raise ValueError('Promotional discount does not match purchased quantity')
+        if raw['bundle_offer_version'] == 3 and units == 1 and buyer != SINGLE_ITEM_SHIPPING_PIASTRES:
+            raise ValueError('Single-item shipping is not the fixed EGP 50 tariff')
         merchandise=subtotal-bundle_discount
         expected_floor = (retained_profit_floor(merchandise)
                           if raw['bundle_offer_version'] == 1

@@ -137,3 +137,13 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .bundle-promo-amount span{font-size:16px;font-weight:800}
 .bundle-promo-free{padding:9px 15px;border-radius:15px;background:#1b6f50;color:#fff;font-size:13px;font-weight:800}
 @media(max-width:760px){.bundle-promo-banner{grid-template-columns:1fr;gap:16px;padding:21px 17px;margin-top:8px}.bundle-promo-copy{text-align:center}.bundle-promo-banner h2{font-size:27px}.bundle-promo-banner p{margin-inline:auto}.bundle-promo-visual{padding:13px 10px;gap:4px}.bundle-promo-amount strong{font-size:56px}.bundle-promo-cta{display:flex;width:100%}}
+
+
+/* Quantity controls: change one item at a time; no JavaScript required. */
+.cart-quantity-control{display:inline-flex;align-items:center;gap:8px;direction:ltr;margin-top:12px;padding:4px;border:1px solid var(--stroke);border-radius:12px;background:#f9fbf8}
+.cart-quantity-control button{width:36px;height:36px;min-width:36px;border:0;border-radius:9px;background:#e4f1e9;color:#155a40;font-size:23px;line-height:1;cursor:pointer;font-weight:750}
+.cart-quantity-control button:focus-visible{outline:3px solid #6fb79b;outline-offset:2px}
+.cart-quantity-control button:disabled{opacity:.45;cursor:not-allowed}
+.cart-quantity-control output{min-width:28px;direction:ltr;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
+.order-summary strong[dir="ltr"],.cart-row-aside strong[dir="ltr"]{unicode-bidi:isolate;font-variant-numeric:tabular-nums}
+@media(max-width:740px){.cart-quantity-control{gap:5px}.cart-quantity-control button{width:33px;height:33px;min-width:33px}}
