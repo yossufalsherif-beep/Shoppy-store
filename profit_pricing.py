@@ -133,6 +133,20 @@ def checkout_offer(conn, rows, rate):
         'bundle_offer_version': BUNDLE_OFFER_VERSION, 'bundle_unit_count': units,
     }
 
+def validate_promo_snapshot(raw,merchandise,costs,supplier_shipping,buyer_shipping,floor):
+    """Verify immutable voucher arithmetic and merchant margin for saved orders."""
+    code=raw.get('promo_code','') or ''
+    percent=raw.get('promo_percent',0)
+    discount=raw.get('promo_discount',0)
+    if not isinstance(code,str) or not isinstance(percent,int) or not isinstance(discount,int):
+        raise ValueError('Invalid promo order snapshot')
+    if not code and percent==0 and discount==0:return
+    if not code or not 1<=percent<=100 or discount!=merchandise*percent//100 or discount<=0:
+        raise ValueError('Promotional order discount was changed')
+    if merchandise-discount+buyer_shipping-costs-supplier_shipping < max(100,floor):
+        raise ValueError('Promotional order would sell below supplier costs')
+
+
 def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
     if raw.get('bundle_offer_version', 0) in (1, 2, 3):
         standard=raw['shipping_standard_fee']
@@ -156,6 +170,7 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
                           else MIN_BUNDLE_CONTRIBUTION_PIASTRES)
         if merchandise < 0 or floor != expected_floor or merchandise+buyer-costs-supplier < floor:
             raise ValueError('Promotional order violates retained merchant contribution')
+        validate_promo_snapshot(raw,merchandise,costs,supplier,buyer,floor)
         return
     if raw.get('bundle_offer_version', 0) not in (0,None):
         raise ValueError('Unknown promotion version')
@@ -171,3 +186,4 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
         raise ValueError('Delivery discount does not match the saved rate')
     if discount and (floor!=retained_profit_floor(subtotal) or subtotal+buyer-costs-supplier<floor):
         raise ValueError('Delivery discount violates the retained margin')
+    validate_promo_snapshot(raw,subtotal,costs,supplier,buyer,floor)
