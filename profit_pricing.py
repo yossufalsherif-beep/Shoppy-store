@@ -20,7 +20,7 @@ def minimum_sale_price(cost):
 def init_pricing_schema(conn):
     columns={r['name'] for r in conn.execute('PRAGMA table_info(orders)')}
     for col,definition in [('shipping_standard_fee','BIGINT'),('shipping_discount','BIGINT NOT NULL DEFAULT 0'),
-                           ('retained_profit_floor','BIGINT NOT NULL DEFAULT 0')]:
+                           ('retained_profit_floor','BIGINT NOT NULL DEFAULT 0'),('bundle_discount','BIGINT NOT NULL DEFAULT 0'),('bundle_offer_version','INTEGER NOT NULL DEFAULT 0'),('bundle_unit_count','INTEGER NOT NULL DEFAULT 0')]:
         if col not in columns:conn.execute('ALTER TABLE orders ADD COLUMN '+col+' '+definition)
     init_market_schema(conn)
 
