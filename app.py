@@ -493,6 +493,7 @@ def readonly_safka_checkout_diagnostic():
     item['supplier_active']=raw.get('is_active') is True
     item['parent_price_equal']=normalized['supplier_cost']==p['supplier_cost']
     item['raw_property_count']=len(raw.get('properties') or [])
+    item['properties_summary']=[{'option_label':str(entry.get('key') or '')[:80],'same_price':entry.get('sale_price')==p['supplier_cost']/100,'price':entry.get('sale_price'),'available':entry.get('is_available'),'has_id':bool(entry.get('_id'))} for entry in (raw.get('properties') or []) if isinstance(entry,dict)][:6]
     item['raw_options_match_local']=normalized['options']==json.loads(p['options_json'] or '{}')
     choices=[{}]
     opts=json.loads(p['options_json'] or '{}')
