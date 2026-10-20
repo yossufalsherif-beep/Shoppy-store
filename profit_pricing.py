@@ -75,6 +75,10 @@ def preserve_market_price(conn,pid,cost):
 # order-level discount on each piece after the first. Historical DB catalog
 # prices remain untouched, so a Safka sync never adds the premium twice.
 BUNDLE_PREMIUM_PIASTRES = 9500
+# v2 promotion permits reduced contribution for expensive destinations, while
+# blocking sales below goods + real supplier shipping. Historical v1 keeps its floor.
+BUNDLE_OFFER_VERSION = 2
+MIN_BUNDLE_CONTRIBUTION_PIASTRES = 100  # At least EGP 1 before ads, returns, and other overhead.
 
 def bundle_enabled():
     return os.getenv('SHOPY_BUNDLE_OFFER_ENABLED', '0') == '1'
@@ -83,11 +87,11 @@ def displayed_product_price(product):
     return product['price'] + (BUNDLE_PREMIUM_PIASTRES if bundle_enabled() else 0)
 
 def checkout_offer(conn, rows, rate):
-    """Compute a fully funded, server-side price snapshot without updating products.
+    """Compute a verified server-side quote without changing stored prices.
 
-    The single-item shipping reduction is merchant-funded and explicitly
-    configured in EGP; the quote always uses the verified governorate rate.
-    The merchant's retained contribution cannot dip below the configured floor.
+    The single-item shipping reduction is separately configurable. New bundle
+    orders may earn less than the legacy 15% margin floor in expensive regions,
+    but must still pay for goods, supplier shipping, and the minimum contribution.
     """
     if not bundle_enabled():
         legacy = shipping_offer(conn, rows, rate)
@@ -120,7 +124,7 @@ def checkout_offer(conn, rows, rate):
         if not 0 <= reduction <= 500:
             raise ValueError('Invalid merchant shipping subsidy')
         delivery = min(standard, max(100, standard - reduction * 100))
-    floor = retained_profit_floor(merchandise)
+    floor = MIN_BUNDLE_CONTRIBUTION_PIASTRES
     supplier_goods = sum(p['supplier_cost'] * q for p, q, *_ in rows)
     if merchandise + delivery - supplier_goods - supplier_shipping < floor:
         raise ValueError('العرض غير متاح لهذه السلة مؤقتًا؛ يحتاج مراجعة هامش الربح قبل البيع.')
@@ -128,11 +132,11 @@ def checkout_offer(conn, rows, rate):
         'standard': standard, 'fee': delivery, 'discount': standard - delivery,
         'floor': floor, 'displayed_subtotal': displayed,
         'merchandise_total': merchandise, 'bundle_discount': discount,
-        'bundle_offer_version': 1, 'bundle_unit_count': units,
+        'bundle_offer_version': BUNDLE_OFFER_VERSION, 'bundle_unit_count': units,
     }
 
 def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
-    if raw.get('bundle_offer_version', 0) == 1:
+    if raw.get('bundle_offer_version', 0) in (1, 2):
         standard=raw['shipping_standard_fee']
         supplier=raw['supplier_shipping_piastres']
         buyer=raw['customer_shipping_piastres']
@@ -147,7 +151,10 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
         if bundle_discount != BUNDLE_PREMIUM_PIASTRES*(units-1) or (units>=2 and buyer!=0) or (units==1 and buyer<100):
             raise ValueError('Promotional discount does not match purchased quantity')
         merchandise=subtotal-bundle_discount
-        if merchandise < 0 or floor != retained_profit_floor(merchandise) or merchandise+buyer-costs-supplier<floor:
+        expected_floor = (retained_profit_floor(merchandise)
+                          if raw['bundle_offer_version'] == 1
+                          else MIN_BUNDLE_CONTRIBUTION_PIASTRES)
+        if merchandise < 0 or floor != expected_floor or merchandise+buyer-costs-supplier < floor:
             raise ValueError('Promotional order violates retained merchant contribution')
         return
     if raw.get('bundle_offer_version', 0) not in (0,None):
