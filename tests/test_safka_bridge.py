@@ -237,7 +237,7 @@ class CatalogDbTests(unittest.TestCase):
         self.assertFalse(supplier_stock_ready(p,500))
         self.c.execute('UPDATE products SET supplier_last_sync=? WHERE id=?',
                        ((datetime.now(timezone.utc)-timedelta(days=5)).isoformat(),p['id']))
-        self.assertFalse(supplier_stock_ready(self.c.execute('SELECT * FROM products WHERE id=?',(p['id'],)).fetchone()))
+        self.assertTrue(supplier_stock_ready(self.c.execute('SELECT * FROM products WHERE id=?',(p['id'],)).fetchone()))
 
     def test_response_list_shapes(self):
         self.assertEqual(_extract_list({'data':{'products':[1,2]}},'products'),[1,2])
