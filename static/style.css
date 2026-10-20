@@ -118,10 +118,22 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .floating-support-link:hover,.floating-support-link:focus-visible{background:#17513f;color:white}
 @media(max-width:600px){.floating-support-link{left:12px;bottom:12px;padding:11px 15px;font-size:12px}}
 
-/* Bundle promotion uses the same restrained Shoppy palette on mobile and desktop. */
-.bundle-promo-banner{display:flex;align-items:center;justify-content:space-between;gap:22px;padding:24px 28px;margin:0 0 22px;border-radius:22px;background:linear-gradient(120deg,#e2f7ef,#fcf4df);border:1px solid #c0e6db}
-.bundle-promo-banner h2{font-size:clamp(21px,2.5vw,32px);margin:4px 0 8px;color:#17513f}
-.bundle-promo-banner p{margin:0;line-height:1.8;color:#295748}
-.bundle-promo-banner .bundle-promo-tag{font-size:12px;font-weight:800;color:#0b7562;border:1px solid #8acbb9;border-radius:999px;padding:8px 11px;white-space:nowrap}
-.bundle-promo-banner .btn{white-space:nowrap}
-@media(max-width:760px){.bundle-promo-banner{flex-direction:column;text-align:center;gap:12px;padding:20px 17px}.bundle-promo-banner .btn{width:100%}}
+/* Accessible, prominent Arabic storefront promotion: repeat purchases count too. */
+.bundle-promo-banner{position:relative;isolation:isolate;overflow:hidden;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(240px,.85fr);align-items:center;gap:28px;margin:12px 0 30px;padding:clamp(22px,4vw,45px);border:1px solid #c7e4d9;border-radius:25px;background:linear-gradient(112deg,#e4f7ed 0%,#f0fbf5 52%,#fff4db 100%);box-shadow:0 16px 38px rgba(21,81,63,.09)}
+.bundle-promo-banner::before{content:"";position:absolute;inset:auto -65px -135px auto;width:300px;height:300px;border-radius:50%;background:rgba(244,177,70,.18);z-index:-1}
+.bundle-promo-copy{position:relative;z-index:1;min-width:0}
+.bundle-promo-banner .bundle-promo-tag{display:inline-flex;align-items:center;gap:5px;margin-bottom:11px;padding:6px 12px;border-radius:999px;background:#fff;color:#176548;border:1px solid #b4dac7;font-weight:800;font-size:13px}
+.bundle-promo-banner h2{font-size:clamp(25px,3vw,41px);line-height:1.3;letter-spacing:-.3px;color:#174d39;margin:0 0 13px}
+.bundle-promo-banner h2 span{display:inline;color:#be6823}
+.bundle-promo-banner p{max-width:660px;color:#325b4b;margin:7px 0;line-height:1.9}
+.bundle-promo-banner .bundle-promo-lead{font-size:clamp(17px,1.6vw,21px);font-weight:700;color:#17513f}
+.bundle-promo-lead strong{color:#b85c19}
+.bundle-promo-banner .bundle-promo-note{font-size:13px;color:#5b7466}
+.bundle-promo-cta{display:inline-flex;align-items:center;justify-content:center;margin-top:17px;max-width:100%;white-space:normal;text-align:center}
+.bundle-promo-visual{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-width:0;padding:24px 17px;border:2px solid #fff;border-radius:24px;background:rgba(255,255,255,.66);box-shadow:0 10px 30px rgba(24,79,56,.08);text-align:center}
+.bundle-promo-visual-top{font-size:14px;font-weight:750;color:#22583f}
+.bundle-promo-amount{display:flex;align-items:baseline;justify-content:center;gap:7px;direction:rtl;color:#1a6748}
+.bundle-promo-amount strong{font-size:clamp(54px,6.5vw,93px);font-weight:900;letter-spacing:-3px;line-height:1.1;color:#cc6928}
+.bundle-promo-amount span{font-size:16px;font-weight:800}
+.bundle-promo-free{padding:9px 15px;border-radius:15px;background:#1b6f50;color:#fff;font-size:13px;font-weight:800}
+@media(max-width:760px){.bundle-promo-banner{grid-template-columns:1fr;gap:16px;padding:21px 17px;margin-top:8px}.bundle-promo-copy{text-align:center}.bundle-promo-banner h2{font-size:27px}.bundle-promo-banner p{margin-inline:auto}.bundle-promo-visual{padding:13px 10px;gap:4px}.bundle-promo-amount strong{font-size:56px}.bundle-promo-cta{display:flex;width:100%}}

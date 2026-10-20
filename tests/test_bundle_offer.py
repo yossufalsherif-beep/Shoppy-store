@@ -34,6 +34,13 @@ class TwoPieceOfferTests(unittest.TestCase):
         self.assertTrue(self.quote['ok'], self.quote)
         self.delivery['quote_token'] = self.quote['quote_token']
 
+    def test_home_banner_mentions_same_product_quantities(self):
+        page = self.client.get('/')
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('نفس المنتج مرتين أو أكتر'.encode('utf-8'), page.data)
+        self.assertIn('كل قطعة إضافية بعد الأولى'.encode('utf-8'), page.data)
+        self.assertIn('الشحن علينا'.encode('utf-8'), page.data)
+
     def test_one_item_shows_region_based_reduced_delivery(self):
         self.assertEqual(self.quote['products_total_piastres'], 24500)
         self.assertEqual(self.quote['bundle_discount_piastres'], 0)
