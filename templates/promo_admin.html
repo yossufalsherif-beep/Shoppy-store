@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block title %}إدارة البرومو كود — Shoppy Store{% endblock %}
+{% block content %}
+<div class="page-title"><span class="eyebrow">لوحة التحكم</span><h1>إدارة أكواد الخصم</h1><p>أنشئ خصومات بالنسبة المئوية مع حد استخدامات ومدة صلاحية. كل المواعيد بتوقيت القاهرة.</p><a href="/admin" class="text-link">← الرجوع للوحة التحكم</a></div>
+<div class="checkout-layout">
+<section class="panel">
+ <h2>إنشاء برومو كود جديد</h2>
+ <form action="/admin/promo-codes/create" method="post" class="auth-form">
+  <input type="hidden" name="csrf" value="{{csrf}}">
+  <label>كود الخصم بالإنجليزية <input name="code" placeholder="WELCOME10" minlength="4" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_-]{2,30}[A-Za-z0-9]" required autocapitalize="characters"></label>
+  <label>نسبة الخصم % <input type="number" name="percent" min="1" max="100" value="10" required></label>
+  <label>أقصى عدد استخدامات <input type="number" name="max_uses" min="1" max="10000000" value="100"></label>
+  <label class="checkbox-label"><input name="unlimited" value="1" type="checkbox"> بدون حد لعدد الاستخدامات</label>
+  <label>بداية الصلاحية <input type="datetime-local" name="starts_at" required></label>
+  <label>نهاية الصلاحية <input type="datetime-local" name="expires_at" required></label>
+  <p class="fine-print">الخصم بيتحسب على المنتجات بعد عرض القطع الإضافية، مش على الشحن. المتجر هيمنع تلقائيًا أي خصم يخلي الطلب أقل من تكلفة المورد والشحن. الاستخدام بيتحسب عند إنشاء الطلب، ولا يُسترد تلقائيًا عند الإلغاء.</p>
+  <button class="btn btn-dark">إنشاء كود الخصم</button>
+ </form>
+</section>
+<aside class="panel">
+ <h2>القواعد المهمة</h2>
+ <p>تقدر توقف أي كود فورًا، أو تعدل مدته وعدد استخداماته ونسبة الخصم.</p>
+ <p>انتهاء الصلاحية تلقائي؛ مش محتاج تدخل تلغي الكود بنفسك.</p>
+ <p>لا يتم إرسال أي بيانات خصم للمورد إلا لما يطابق إجمالي العميل المبلغ المحسوب على السيرفر.</p>
+ <p>الكود الواحد بيتحسب مرة واحدة لكل طلب، ومفيش خصم على الشحن نفسه.</p>
+</aside>
+</div>
+<section class="admin-section">
+ <div class="section-heading"><div><h2>الأكواد المسجلة</h2><p>الأحدث أولًا</p></div><strong class="count">{{codes|length}}</strong></div>
+ <div class="panel table-panel"><div class="table-scroll"><table><thead><tr><th>الكود</th><th>الخصم</th><th>الاستخدامات</th><th>الصلاحية</th><th>الحالة</th><th>التحكم</th></tr></thead><tbody>
+ {% for p in codes %}
+ <tr>
+  <td><strong dir="ltr">{{p.code}}</strong></td>
+  <td>{{p.percent}}%</td>
+  <td>{{p.used_count}} / {{p.max_uses if p.max_uses is not none else 'غير محدود'}}</td>
+  <td><small>من {{p.starts_at|egypt_promo_date|replace('T',' ')}}</small><small>حتى {{p.expires_at|egypt_promo_date|replace('T',' ')}}</small></td>
+  <td>{% if not p.active %}موقوف{% elif p.expires_at<=now_epoch %}منتهي{% elif p.starts_at>now_epoch %}لم يبدأ{% elif p.max_uses is not none and p.used_count>=p.max_uses %}نفدت الاستخدامات{% else %}فعّال{% endif %}</td>
+  <td><form method="post" action="/admin/promo-codes/{{p.code}}/toggle"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline" type="submit">{{'تفعيل' if not p.active else 'إيقاف'}}</button></form>
+   <details><summary>تعديل</summary><form method="post" action="/admin/promo-codes/{{p.code}}/edit" class="auth-form"><input type="hidden" name="csrf" value="{{csrf}}">
+    <label>النسبة <input type="number" name="percent" min="1" max="100" value="{{p.percent}}" required></label>
+    <label>عدد الاستخدامات <input type="number" name="max_uses" min="1" value="{{p.max_uses if p.max_uses is not none else ''}}"></label>
+    <label><input type="checkbox" name="unlimited" value="1" {% if p.max_uses is none %}checked{% endif %}> غير محدود</label>
+    <label>البداية <input name="starts_at" type="datetime-local" value="{{p.starts_at|egypt_promo_date}}" required></label>
+    <label>النهاية <input name="expires_at" type="datetime-local" value="{{p.expires_at|egypt_promo_date}}" required></label>
+    <button class="btn btn-dark">حفظ التعديل</button>
+   </form></details>
+  </td>
+ </tr>
+ {% else %}<tr><td colspan="6">مفيش برومو كود اتعمل لسه.</td></tr>{% endfor %}
+ </tbody></table></div></div>
+</section>
+{% endblock %}
