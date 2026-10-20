@@ -12,7 +12,7 @@ from profit_pricing import init_pricing_schema, checkout_offer, displayed_produc
 from social_auth import init_social_schema, configured_providers, start_flow, exchange_identity, resolve_account, SocialAuthError
 from ui_queries import paginate, price_filter, order_filters, grouped, ORDER_LABELS
 from safka_status import SUPPLIER_STATUS_LABELS, apply_order_status_event
-from urllib.parse import urlencode
+from urllib.parse import urlencode, unquote
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
 from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, migrate_supplier_product_slugs, CatalogValidationError
 from safka_dry_run import prepare_dry_run
@@ -276,16 +276,45 @@ def home():
  return render_template('home.html',items=items,term=term,category=category,categories=categories,
                         fav_ids=fav_ids,ratings_map=ratings_map,pager=pager)
 
+def product_slug_variants(slug):
+ """Recover exact UTF-8 slugs if an upstream proxy forwards percent encoding.
+
+ Vercel can pass /products/%D8... literally to the Flask WSGI route.
+ Try direct + strict UTF-8 decoding, never fuzzy title or ID lookups.
+ """
+ candidates=[slug]
+ # Some gateways may double-encode percent escapes.
+ for _ in range(2):
+  try:decoded=unquote(candidates[-1], encoding='utf-8', errors='strict')
+  except (UnicodeDecodeError,ValueError):break
+  if decoded==candidates[-1] or any(ch in decoded for ch in ('/',chr(0),'?','#')):break
+  if len(decoded)>250:break
+  candidates.append(decoded)
+ # WSGI gateways sometimes decode UTF-8 bytes as Latin-1.
+ for val in tuple(candidates):
+  if any(ord(ch) in range(128,256) for ch in val):
+   try:repaired=val.encode('latin-1').decode('utf-8')
+   except (UnicodeError,ValueError):continue
+   if repaired not in candidates and len(repaired)<=250 and not any(ch in repaired for ch in ('/',chr(0),'?','#')):
+    candidates.append(repaired)
+ return tuple(dict.fromkeys(candidates))
+
+
 @app.route('/products/<slug>')
 def product(slug):
  capture_campaign()
  with db() as c:
-  p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(slug,)).fetchone()
+  variants=product_slug_variants(slug)
+  p=None
+  for candidate in variants:
+   p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(candidate,)).fetchone()
+   if p:break
   if not p:
-   alias=c.execute('SELECT product_id FROM product_slug_aliases WHERE slug=?',(slug,)).fetchone()
-   if alias:
-    moved=c.execute("SELECT slug FROM products WHERE id=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(alias['product_id'],)).fetchone()
-    if moved:return redirect('/products/'+moved['slug'],code=301)
+   for candidate in variants:
+    alias=c.execute('SELECT product_id FROM product_slug_aliases WHERE slug=?',(candidate,)).fetchone()
+    if alias:
+     moved=c.execute("SELECT slug FROM products WHERE id=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(alias['product_id'],)).fetchone()
+     if moved:return redirect('/products/'+moved['slug'],code=301)
    abort(404)
   others=c.execute("SELECT * FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
  with db() as c:
