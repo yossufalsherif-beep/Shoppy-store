@@ -1194,6 +1194,47 @@ def safka_incoming_hook(kind,token):
  return ('',202)
 
 
+@app.get('/internal/safka/nightly')
+def safka_nightly_sync():
+ # Vercel Cron provides this header only when a CRON_SECRET is configured.
+ expected=os.environ.get('CRON_SECRET','')
+ offered=request.headers.get('Authorization','')
+ if len(expected)<24 or not hmac.compare_digest(offered,'Bearer '+expected):
+  abort(401)
+ if os.environ.get('SHOPY_SAFKA_READ_ENABLED')!='1':
+  return jsonify(ok=False,message='Supplier API reads not enabled'),503
+ api_key=os.environ.get('SHOPY_SAFKA_API_KEY','').strip()
+ if len(api_key)<12:
+  return jsonify(ok=False,message='Supplier API is not configured'),503
+ from safka_admin_sync import api_page,checked_products,sync_product_page,sync_shipping_snapshot
+ from safka_checkout import shipping_snapshot
+ started=time.monotonic()
+ counts={'pages':0,'products':0,'shipping':0,'complete':False}
+ try:
+  with db() as conn:
+   p=conn.execute("SELECT value FROM store_settings WHERE key='safka_admin_next_page'").fetchone()
+   next_page=int(p['value']) if p else 1
+  for _ in range(100):
+   # Leave buffer for Vercel Function completion; continue unfinished scans tomorrow.
+   if time.monotonic()-started>170:break
+   envelope,records=api_page(api_key,'/api/v1/public/products','products',page=next_page,size=50,timeout=8)
+   pages,size=checked_products(envelope,records,next_page)
+   with db() as conn:result=sync_product_page(conn,records,next_page,pages)
+   counts['pages']+=1
+   counts['products']+=size
+   if result['cycle_complete']:
+    counts['complete']=True
+    break
+   next_page=result['next_page']
+  if time.monotonic()-started<185:
+   rates=shipping_snapshot(api_key)
+   with db() as conn:counts['shipping']=sync_shipping_snapshot(conn,rates)['updated']
+  return jsonify(ok=True,**counts)
+ except (ValueError,OSError,TypeError,KeyError,CatalogValidationError) as exc:
+  # Existing verified catalog and rates are retained; no customer-facing warning.
+  return jsonify(ok=False,error_type=type(exc).__name__,**counts),502
+
+
 @app.post('/admin/safka/sync')
 @admin_only
 def sync_safka_owner():
