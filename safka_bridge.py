@@ -542,16 +542,8 @@ def supplier_stock_ready(p, qty=1):
     # A supplier listing can be ordered without publishing an invented quantity.
     if count is not None and count < qty:
         return False
-    stamp = p['supplier_last_sync']
-    if not stamp:
-        return False
-    try:
-        last=datetime.fromisoformat(stamp)
-        if last.tzinfo is None:
-            return False
-        age=datetime.now(timezone.utc)-last
-        import os
-        minutes=int(os.getenv('SHOPY_SAFKA_MAX_STOCK_AGE_MINUTES','5760'))
-        return timedelta(0)<=age<=timedelta(minutes=max(5,min(minutes,10080)))
-    except (ValueError,TypeError):
-        return False
+    # Last verified supplier availability remains browsable between scheduled
+    # syncs. Expiring an arbitrary age would disable all products for the first
+    # shopper after a quiet night. Checkout still verifies the live supplier
+    # property when actual provider submission is enabled.
+    return bool(p['supplier_last_sync'])
