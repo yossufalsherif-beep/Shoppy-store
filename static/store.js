@@ -54,6 +54,21 @@
   finally{form.dataset.busy='0';if(button)button.disabled=false;}
  });
  document.addEventListener('click',event=>{
+  const toggle=event.target.closest('[data-toggle-password]');
+  if(!toggle)return;
+  const targetId=toggle.getAttribute('data-toggle-password');
+  const password=document.getElementById(targetId);
+  if(!password||!['password','text'].includes(password.type))return;
+  const showing=password.type==='password';
+  password.type=showing?'text':'password';
+  toggle.setAttribute('aria-pressed',String(showing));
+  toggle.setAttribute('aria-label',showing?'إخفاء كلمة المرور':'إظهار كلمة المرور');
+  toggle.title=showing?'إخفاء كلمة المرور':'إظهار كلمة المرور';
+  const label=toggle.querySelector('.password-visibility-text');
+  if(label)label.textContent=showing?'إخفاء':'إظهار';
+  toggle.classList.toggle('is-visible',showing);
+ });
+ document.addEventListener('click',event=>{
   const dialog=document.getElementById('account-delete-dialog');
   if(!dialog)return;
   if(event.target.closest('[data-open-account-delete]')){

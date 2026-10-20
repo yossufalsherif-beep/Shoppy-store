@@ -15,7 +15,7 @@ import time
 import urllib.request
 from urllib.parse import urlencode, urlsplit
 
-PROVIDERS = ('google',)  # Google-only; no new Apple sign-ins or links.
+PROVIDERS = ('google', 'facebook')  # Explicitly supported OAuth providers; Apple stays disabled.
 
 class SocialAuthError(ValueError):
     pass
