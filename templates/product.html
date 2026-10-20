@@ -46,7 +46,7 @@
     <small>({{customer_rating.count}} تقييم من عملائنا)</small>
    </a>
   {% endif %}
-  <div class="price-block"><strong>{{money(p.price)}} <small>ج.م</small></strong><span>السعر غير شامل الشحن</span></div>
+  <div class="price-block"><strong>{{money(shown_price(p))}} <small>ج.م</small></strong><span>{{'خصم إضافي للقطعة الثانية وما بعدها عند الشراء' if bundle_active else 'السعر غير شامل الشحن'}}</span></div>
   <hr>
   <div class="description"><h3>تفاصيل المنتج</h3><p class="product-description">{{p.description|product_description if p.description else 'التفاصيل الكاملة لهذا المنتج قيد التحديث.'}}</p></div>
   <form method="post" action="/cart/add/{{p.id}}" class="purchase-form" data-async="cart">
@@ -63,7 +63,7 @@
    </button>
    <a href="/favorites" class="text-link">قائمة المفضلة ←</a>
   </form>
-  <div class="product-help"><span>✓ تكلفة التوصيل تظهر قبل تأكيد الطلب</span><span>✓ الدفع عند الاستلام</span></div>
+  <div class="product-help"><span>✓ تكلفة التوصيل والعروض تظهر قبل تأكيد الطلب</span><span>✓ الدفع عند الاستلام</span></div>
  </div>
 </section>
 <section id="reviews" class="catalog-section reviews-section" aria-labelledby="reviews-title">
