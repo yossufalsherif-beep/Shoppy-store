@@ -72,8 +72,10 @@ class SocialFlowTests(unittest.TestCase):
   with store.db() as c:
    self.assertEqual(c.execute('SELECT count(*) FROM users').fetchone()[0],1)
    self.assertEqual(c.execute('SELECT user_id FROM social_identities').fetchone()[0],uid)
- def test_apple_provider_uses_same_pkce_callback_without_relaxing_cookie_policy(self):
-  response=self.start('apple');self.assertIn('provider=apple',response.location)
+ def test_apple_provider_is_disabled_even_if_environment_flag_is_set(self):
+  response=self.client.post('/auth/apple/start',data={'csrf':'test-csrf'})
+  self.assertEqual(response.status_code,404)
+  with self.client.session_transaction() as sess:self.assertNotIn('oauth_flow',sess)
   self.assertEqual(store.app.config['SESSION_COOKIE_SAMESITE'],'Lax')
  def test_provider_cannot_be_enabled_by_flag_without_actual_configuration(self):
   with patch('social_auth.auth_request',return_value={'external':{'google':False}}):
