@@ -219,5 +219,35 @@ class TwoPieceOfferTests(unittest.TestCase):
         self.assertIn('name="action" value="increase"', cart)
         self.assertIn('50 جنيه', cart)
 
+
+    def test_product_links_show_compact_offer_without_hiding_product_cta(self):
+        with store.db() as conn:
+            slug = conn.execute('SELECT slug FROM products WHERE id=1').fetchone()['slug']
+        page = self.client.get('/products/' + slug)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b'mini-promo-product', page.data)
+        self.assertIn('تفاصيل العرض'.encode('utf-8'), page.data)
+        self.assertIn('خصم 95 جنيه'.encode('utf-8'), page.data)
+        self.assertIn('action="/cart/add/1"'.encode('utf-8'), page.data)
+
+    def test_cart_offer_message_adapts_to_total_units(self):
+        single = self.client.get('/cart')
+        self.assertEqual(single.status_code, 200)
+        self.assertIn(b'mini-promo-cart', single.data)
+        self.assertIn('ضيف قطعة تانية'.encode('utf-8'), single.data)
+        self.client.post('/cart/add/1', data={'csrf': self.token()})
+        double = self.client.get('/cart')
+        self.assertEqual(double.status_code, 200)
+        self.assertIn('عرضك اتفعّل'.encode('utf-8'), double.data)
+        self.assertIn('شحن مجاني وخصم 95.00'.encode('utf-8'), double.data)
+        self.assertIn('name="action" value="decrease"'.encode('utf-8'), double.data)
+
+    def test_compact_promotions_off_when_campaign_flag_is_disabled(self):
+        with store.db() as conn:
+            slug = conn.execute('SELECT slug FROM products WHERE id=1').fetchone()['slug']
+        with patch.dict(os.environ, {'SHOPY_BUNDLE_OFFER_ENABLED': '0'}):
+            self.assertNotIn(b'mini-promo-cart', self.client.get('/cart').data)
+            self.assertNotIn(b'mini-promo-product', self.client.get('/products/' + slug).data)
+
 if __name__=='__main__':
     unittest.main()
