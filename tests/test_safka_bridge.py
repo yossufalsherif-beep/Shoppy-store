@@ -230,7 +230,7 @@ class CatalogDbTests(unittest.TestCase):
         self.c.execute('INSERT INTO order_items(order_id,product_id,title,quantity) VALUES(?,?,?,?)',(1,1,'مدوي',1))
         self.assertFalse(queue_safka_order(self.c,1))
 
-    def test_stock_stale_blocks(self):
+    def test_last_verified_stock_survives_sync_age_until_new_supplier_check(self):
         import_products(self.c,[fake_product('S1')])
         p=self.c.execute("SELECT * FROM products WHERE source='safka'").fetchone()
         self.assertTrue(supplier_stock_ready(p,1))
