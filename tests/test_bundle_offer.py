@@ -230,17 +230,38 @@ class TwoPieceOfferTests(unittest.TestCase):
         self.assertIn('خصم 95 جنيه'.encode('utf-8'), page.data)
         self.assertIn('action="/cart/add/1"'.encode('utf-8'), page.data)
 
-    def test_cart_offer_message_adapts_to_total_units(self):
-        single = self.client.get('/cart')
-        self.assertEqual(single.status_code, 200)
-        self.assertIn(b'mini-promo-cart', single.data)
-        self.assertIn('ضيف قطعة تانية'.encode('utf-8'), single.data)
-        self.client.post('/cart/add/1', data={'csrf': self.token()})
-        double = self.client.get('/cart')
-        self.assertEqual(double.status_code, 200)
-        self.assertIn('عرضك اتفعّل'.encode('utf-8'), double.data)
-        self.assertIn('شحن مجاني وخصم 95.00'.encode('utf-8'), double.data)
-        self.assertIn('name="action" value="decrease"'.encode('utf-8'), double.data)
+    def test_cart_banner_reuses_home_copy_without_pressuring_to_add_items(self):
+        home = self.client.get('/')
+        self.assertEqual(home.status_code, 200)
+        copy = [
+            'قطعتين أو أكتر؟', 'الشحن علينا!',
+            'كل قطعة إضافية بعد الأولى', 'نفس المنتج مرتين أو أكتر',
+            'ومش لازم تشتري منتجات مختلفة.',
+            'والشحن مجاني للطلبات المؤهلة من قطعتين فأكثر.',
+            'عند شراء قطعة واحدة، الشحن 50 جنيه فقط لأي محافظة أو مدينة مدعومة.',
+        ]
+        for count in (1, 2, 3):
+            with self.subTest(count=count):
+                cart = self.client.get('/cart')
+                self.assertEqual(cart.status_code, 200)
+                self.assertIn(b'mini-promo-cart', cart.data)
+                for phrase in copy:
+                    self.assertIn(phrase.encode('utf-8'), home.data)
+                    self.assertIn(phrase.encode('utf-8'), cart.data)
+                self.assertNotIn('ضيف قطعة تانية'.encode('utf-8'), cart.data)
+                self.assertNotIn('عرضك اتفعّل'.encode('utf-8'), cart.data)
+                self.assertIn('name="action" value="decrease"'.encode('utf-8'), cart.data)
+                if count < 3:
+                    self.client.post('/cart/add/1', data={'csrf': self.token()})
+
+    def test_product_promo_is_shorter_and_neutral(self):
+        with store.db() as conn:
+            slug = conn.execute('SELECT slug FROM products WHERE id=1').fetchone()['slug']
+        page = self.client.get('/products/' + slug)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn('خصم 95 جنيه على كل قطعة إضافية بعد الأولى، وشحن مجاني من قطعتين.'.encode('utf-8'), page.data)
+        self.assertNotIn('اشتري قطعتين أو أكتر:'.encode('utf-8'), page.data)
+        self.assertNotIn('ضيف قطعة تانية'.encode('utf-8'), page.data)
 
     def test_compact_promotions_off_when_campaign_flag_is_disabled(self):
         with store.db() as conn:
