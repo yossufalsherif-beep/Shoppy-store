@@ -3,7 +3,7 @@ import os
 import unittest
 from unittest.mock import patch
 import app as store
-from profit_pricing import displayed_product_price
+from profit_pricing import displayed_product_price, checkout_offer, retained_profit_floor, validate_delivery_snapshot
 from safka_dry_run import prepare_dry_run
 from safka_bridge import CatalogValidationError
 from safka_live_orders import OrderSubmissionOutcome, build_payload
@@ -108,6 +108,48 @@ class TwoPieceOfferTests(unittest.TestCase):
         self.assertEqual(self.quote['bundle_discount_piastres'],19000)
         self.assertEqual(self.quote['merchandise_total_piastres'],54500)
         self.assertEqual(self.quote['shipping_piastres'],0)
+
+
+    def test_distant_destination_can_keep_small_positive_margin(self):
+        # 2 x EGP 150, plus one net EGP 95 premium, supplier delivery EGP 85.
+        # EGP 10 merchant contribution is BELOW the legacy 15% floor but profitable.
+        product = {'price': 15000, 'supplier_cost': 15000}
+        with store.db() as conn:
+            offer = checkout_offer(conn, [(product, 2, {}, 'same-sku')], (9500, 8500))
+        self.assertEqual(offer['displayed_subtotal'], 49000)
+        self.assertEqual(offer['bundle_discount'], 9500)
+        self.assertEqual(offer['merchandise_total'], 39500)
+        self.assertEqual(offer['fee'], 0)
+        self.assertEqual(offer['bundle_offer_version'], 2)
+        self.assertEqual(offer['floor'], 100)
+        profit = offer['merchandise_total'] - 2 * product['supplier_cost'] - 8500
+        self.assertEqual(profit, 1000)
+        self.assertLess(profit, retained_profit_floor(offer['merchandise_total']))
+
+    def test_distant_destination_still_rejects_break_even_or_direct_loss(self):
+        for cost in (15500, 16000):
+            with self.subTest(cost=cost):
+                product = {'price': 15000, 'supplier_cost': cost}
+                with store.db() as conn:
+                    with self.assertRaises(ValueError):
+                        checkout_offer(conn, [(product, 2, {}, 'same-sku')], (9500, 8500))
+
+    def test_old_version_one_orders_still_retain_historical_margin_rule(self):
+        snapshot = {
+            'bundle_offer_version': 1,
+            'shipping_standard_fee': 9500,
+            'supplier_shipping_piastres': 8500,
+            'customer_shipping_piastres': 0,
+            'shipping_discount': 9500,
+            'bundle_discount': 9500,
+            'bundle_unit_count': 2,
+            'retained_profit_floor': retained_profit_floor(39500),
+        }
+        with self.assertRaises(ValueError):
+            validate_delivery_snapshot(snapshot, 49000, 30000, quantity=2)
+        snapshot['bundle_offer_version'] = 2
+        snapshot['retained_profit_floor'] = 100
+        validate_delivery_snapshot(snapshot, 49000, 30000, quantity=2)
 
 if __name__=='__main__':
     unittest.main()
