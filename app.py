@@ -623,7 +623,7 @@ def login():
  return render_template('auth.html',mode='login',social_providers=configured_providers())
 @app.post('/auth/<provider>/start')
 def social_start(provider):
- if provider not in ('google','apple'):abort(404)
+ if provider != 'google':abort(404)
  u=current_user()
  if u and u['role']=='admin':
   with db() as c:owner=c.execute('SELECT password FROM users WHERE id=?',(u['id'],)).fetchone()
