@@ -147,3 +147,18 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .cart-quantity-control output{min-width:28px;direction:ltr;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
 .order-summary strong[dir="ltr"],.cart-row-aside strong[dir="ltr"]{unicode-bidi:isolate;font-variant-numeric:tabular-nums}
 @media(max-width:740px){.cart-quantity-control{gap:5px}.cart-quantity-control button{width:33px;height:33px;min-width:33px}}
+
+
+/* Compact, contextual promotion on ad landing product links and in the cart. */
+.mini-promo{display:flex;align-items:flex-start;gap:12px;min-width:0;padding:14px 15px;border:1px solid #c8e4d6;border-radius:13px;background:linear-gradient(112deg,#e9f7ef,#fff7e8);color:#18573f;text-align:right}
+.mini-promo-icon{display:grid;place-items:center;flex:none;width:34px;height:34px;background:#fff;border-radius:10px;font-size:20px}
+.mini-promo-content{min-width:0;flex:1;font-size:13px;line-height:1.8}
+.mini-promo-content strong{display:block;font-size:14px;color:#17543d}
+.mini-promo-content p{margin:3px 0;color:#506b58}
+.mini-promo-details{margin-top:4px;color:#506b58}
+.mini-promo-details summary{display:inline-block;cursor:pointer;color:#086779;font-weight:750;text-decoration:underline;text-underline-offset:3px}
+.mini-promo-details summary:focus-visible{outline:2px solid #087887;outline-offset:3px}
+.mini-promo-details[open] summary{margin-bottom:5px}
+.mini-promo-product{margin:12px 0 3px}
+.mini-promo-cart{margin:-3px 0 16px}
+@media(max-width:740px){.mini-promo{gap:9px;padding:11px}.mini-promo-icon{width:30px;height:30px;font-size:18px}.mini-promo-content strong{font-size:13px}}

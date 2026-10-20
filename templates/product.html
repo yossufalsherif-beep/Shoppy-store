@@ -47,6 +47,14 @@
    </a>
   {% endif %}
   <div class="price-block"><strong>{{money(shown_price(p))}} <small>ج.م</small></strong><span>{{'خصم إضافي للقطعة الثانية وما بعدها عند الشراء' if bundle_active else 'السعر غير شامل الشحن'}}</span></div>
+  {% if bundle_active %}
+  <aside class="mini-promo mini-promo-product" aria-label="عرض خاص عند شراء أكثر من قطعة">
+   <span class="mini-promo-icon" aria-hidden="true">🎁</span>
+   <div class="mini-promo-content"><strong>اشتري قطعتين أو أكتر: خصم 95 جنيه + شحن مجاني</strong>
+    <details class="mini-promo-details"><summary>تفاصيل العرض</summary><p>خصم 95 جنيه على كل قطعة إضافية بعد الأولى، حتى لو اشتريت نفس المنتج مرتين. الشحن مجاني مع قطعتين أو أكتر للمناطق المدعومة. القطعة الواحدة شحنها 50 جنيه.</p></details>
+   </div>
+  </aside>
+  {% endif %}
   <hr>
   <div class="description"><h3>تفاصيل المنتج</h3><p class="product-description">{{p.description|product_description if p.description else 'التفاصيل الكاملة لهذا المنتج قيد التحديث.'}}</p></div>
   <form method="post" action="/cart/add/{{p.id}}" class="purchase-form" data-async="cart">
