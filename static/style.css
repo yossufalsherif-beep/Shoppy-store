@@ -169,3 +169,21 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .mini-promo-cart .mini-promo-lead{font-size:14px;font-weight:650;color:#18573f;margin:6px 0}
 .mini-promo-cart p strong{display:inline;font-size:inherit;color:#b85c19}
 .mini-promo-cart .mini-promo-note{font-size:12px;color:#5b7466}
+
+/* Account deletion: explicit, accessible destructive confirmation. */
+.account-danger-zone{margin-top:24px}
+.btn-danger-outline{background:#fff;color:#b4232e;border-color:#efabb0}
+.btn-danger-outline:hover{background:#fff1f2}
+.btn-danger{background:#be2634;border-color:#be2634;color:#fff}
+.btn-danger:hover{background:#9d1d2a}
+.btn-safe{background:#177949;border-color:#177949;color:white}
+.btn-safe:hover{background:#10653a}
+.account-delete-dialog{width:min(480px,calc(100% - 32px));border:1px solid var(--stroke);border-radius:18px;padding:24px;max-height:calc(100vh - 60px);overflow:auto;box-shadow:0 20px 70px #0003;color:var(--ink);background:#fff}
+.account-delete-dialog::backdrop{background:rgba(22,35,38,.6)}
+.account-delete-dialog h2{margin:0 0 8px;font-size:23px}
+.account-delete-dialog p{color:var(--muted);margin:4px 0 16px;line-height:1.9}
+.account-delete-dialog form{display:grid;gap:12px}
+.account-delete-dialog label{display:grid;gap:6px;font-weight:650}
+.account-delete-dialog input{width:100%;padding:10px 12px;border:1px solid var(--stroke);border-radius:8px}
+.account-delete-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:12px}
+.account-delete-actions .btn{min-width:116px}

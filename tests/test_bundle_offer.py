@@ -214,7 +214,7 @@ class TwoPieceOfferTests(unittest.TestCase):
         self.assertIn("toLocaleString('en-US'", checkout)
         self.assertNotIn("toLocaleString('ar-EG'", checkout)
         self.assertIn('id="grand-total" dir="ltr"', checkout)
-        self.assertIn('/cart/quantity', cart)
+        self.assertIn('action="/cart" data-async="quantity"', cart)
         self.assertIn('name="action" value="decrease"', cart)
         self.assertIn('name="action" value="increase"', cart)
         self.assertIn('50 جنيه', cart)
@@ -312,26 +312,19 @@ class TwoPieceOfferTests(unittest.TestCase):
             self.assertEqual(self.client.get('/api/shipping-governorates').status_code,200)
             self.assertEqual(self.client.get('/checkout').status_code,200)
 
-    def test_safka_product_slug_migrates_and_old_ad_url_redirects(self):
+    def test_supplier_urls_are_stable_and_not_automatically_migrated(self):
+        # Prevent reintroducing the Arabic slug 404 issue on production.
         old='safka-675aoldcode'
         with store.db() as conn:
             conn.execute('UPDATE products SET slug=? WHERE id=1',(old,))
         store.init()
         with store.db() as conn:
-            renamed=conn.execute('SELECT title,slug FROM products WHERE id=1').fetchone()
-            self.assertNotEqual(renamed['slug'],old)
-            self.assertNotIn('safka-',renamed['slug'])
-        old_response=self.client.get('/products/'+old)
-        self.assertEqual(old_response.status_code,301)
-        from urllib.parse import unquote
-        self.assertEqual(unquote(old_response.location),'/products/'+renamed['slug'])
-        fresh=self.client.get(old_response.location)
-        self.assertEqual(fresh.status_code,200)
-        self.assertIn(renamed['title'].encode('utf-8'),fresh.data)
-        # Second migration is idempotent; won't rename existing marketing links again.
+            found=conn.execute('SELECT slug FROM products WHERE id=1').fetchone()
+            self.assertEqual(found['slug'],old)
+        self.assertEqual(self.client.get('/products/'+old).status_code,200)
         store.init()
         with store.db() as conn:
-            self.assertEqual(conn.execute('SELECT slug FROM products WHERE id=1').fetchone()['slug'],renamed['slug'])
+            self.assertEqual(conn.execute('SELECT slug FROM products WHERE id=1').fetchone()['slug'],old)
 
     def test_nightly_sync_requires_cron_secret_even_if_endpoint_known(self):
         with patch.dict(os.environ, {'CRON_SECRET':'a'*32}, clear=False):

@@ -23,7 +23,7 @@
  <label class="filter-search">ابحث عن منتج<input id="q" name="q" placeholder="اسم المنتج أو كلمة من وصفه" value="{{term}}" maxlength="80"></label>
  <label>السعر من (ج.م)<input name="min_price" type="number" min="0" step=".01" value="{{request.args.get('min_price','')}}" placeholder="100"></label>
  <label>إلى (ج.م)<input name="max_price" type="number" min="0" step=".01" value="{{request.args.get('max_price','')}}" placeholder="400"></label>
- <label>ترتيب المنتجات<select name="sort">{% for value,label in [('newest','الأحدث أولًا'),('price_low','الأقل سعرًا'),('price_high','الأعلى سعرًا')] %}<option value="{{value}}" {% if request.args.get('sort','newest')==value %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label>
+ <label>ترتيب المنتجات<select name="sort">{% for value,label in [('relevance','الأكثر صلة'),('newest','الأحدث أولًا'),('price_low','الأقل سعرًا'),('price_high','الأعلى سعرًا')] %}<option value="{{value}}" {% if request.args.get('sort','relevance' if term else 'newest')==value %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label>
  <div class="filter-buttons"><button class="btn btn-dark" type="submit">عرض النتائج</button><a class="text-link" href="/#catalog">مسح الفلاتر</a></div>
 </form>
 {% if categories %}<nav aria-label="أقسام المنتجات" class="category-chips"><a class="chip {{'is-selected' if not category else ''}}" href="{{query_link(category='',page=1)}}">الكل</a>{% for c in categories %}<a class="chip {{'is-selected' if category==c else ''}}" href="{{query_link(category=c,page=1)}}">{{c}}</a>{% endfor %}</nav>{% endif %}

@@ -247,7 +247,6 @@ def home():
  capture_campaign()
  term=request.args.get('q','').strip()[:80]; category=request.args.get('category','').strip()[:200]
  filters=["(active=1 OR (source='safka' AND supplier_listed=1))"];args=[]
- if term:filters.append('(LOWER(title) LIKE LOWER(?) OR LOWER(description) LIKE LOWER(?))');args.extend(['%'+term+'%','%'+term+'%'])
  if category:filters.append('category=?');args.append(category)
  try:
   low=price_filter(request.args.get('min_price',''));high=price_filter(request.args.get('max_price',''))
@@ -259,10 +258,18 @@ def home():
   high=high-9500 if high is not None else None
  for amount,operator in [(low,'>='),(high,'<=')]:
   if amount is not None:filters.append('price'+operator+'?');args.append(amount)
- order={'newest':'id DESC','price_low':'price ASC,id DESC','price_high':'price DESC,id DESC'}.get(request.args.get('sort'),'id DESC')
+ sort=request.args.get('sort','relevance' if term else 'newest')
+ order={'newest':'id DESC','price_low':'price ASC,id DESC','price_high':'price DESC,id DESC'}.get(sort,'id DESC')
  with db() as c:
   where=' WHERE '+' AND '.join(filters)
-  items,pager=paginate(c,'SELECT * FROM products'+where,'SELECT COUNT(*) FROM products'+where,args,order,request.args.get('page'),30,anchor='catalog')
+  if term:
+   # Small verified catalog (~500 products): rank filtered rows by name first.
+   # No sync/network calls and no supplier side effects on customer searches.
+   from catalog_search import search_ranked,page_ranked
+   candidates=c.execute('SELECT * FROM products'+where+' ORDER BY id DESC',args).fetchall()
+   items,pager=page_ranked(search_ranked(candidates,term,sort),request.args.get('page'))
+  else:
+   items,pager=paginate(c,'SELECT * FROM products'+where,'SELECT COUNT(*) FROM products'+where,args,order,request.args.get('page'),30,anchor='catalog')
   categories=[r['category'] for r in c.execute("SELECT DISTINCT category FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND category!='' ORDER BY category")]
   fav_ids=customer_favorite_ids(c,current_user())
   ratings_map=customer_product_rating_map(c,[p['id'] for p in items])
@@ -573,6 +580,7 @@ def complete_customer_auth(uid,role):
  utm=(session.get('utm_source',''),session.get('utm_campaign',''))
  session.clear()
  session['uid']=uid
+ session['recent_auth_at']=time.time()
  if guest_favs:
   with db() as conn:
    for pid in guest_favs:
@@ -706,8 +714,34 @@ def account():
   ids=[o['id'] for o in orders]
   details=grouped(c,'order_items','order_id',ids,order='id')
   supplier_states={oid:rows[0] for oid,rows in grouped(c,'safka_order_outbox','order_id',ids).items() if rows}
-  linked={r['provider'] for r in c.execute('SELECT provider FROM social_identities WHERE user_id=?',(u['id'],))}
- return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states,pager=pager,social_providers=configured_providers(),linked_providers=linked)
+ return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states,pager=pager)
+
+@app.post('/account/delete')
+def delete_customer_account():
+ """Delete only the authenticated storefront customer, never the store owner.
+
+ A deliberate second confirmation and recent authentication protect against a
+ stale/shared browser session. Preserve order/financial records but unlink them
+ from the deleted login; linked social identities and favorites cascade away.
+ """
+ u=current_user()
+ if not u:return redirect('/login')
+ if u['role']!='customer':abort(403)
+ if not 0 <= time.time()-session.get('recent_auth_at',0) <= 900:
+  flash('لحماية حسابك، سجّل خروج وادخل مرة تانية قبل تأكيد الحذف.')
+  return redirect('/account')
+ if request.form.get('confirm_email','').strip().lower()!=u['email'].lower() or request.form.get('confirm_word','').strip()!='حذف':
+  flash('لم يتم الحذف: اكتب بريد الحساب وكلمة حذف بالشكل المطلوب.')
+  return redirect('/account')
+ with db() as c:
+  # Orders, totals and supplier references are operational/financial records.
+  # Unlink the account while preserving fulfillment history for the merchant.
+  c.execute('UPDATE orders SET user_id=NULL WHERE user_id=?',(u['id'],))
+  c.execute("DELETE FROM users WHERE id=? AND role='customer'",(u['id'],))
+ session.clear()
+ flash('تم حذف حساب المتجر. تُحفظ سجلات الطلبات اللازمة للتوصيل والمحاسبة.')
+ return redirect('/')
+
 @app.get('/admin/safka/order/<int:oid>/preview')
 @admin_only
 def preview_safka_order(oid):
