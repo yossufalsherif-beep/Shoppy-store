@@ -70,7 +70,88 @@ def preserve_market_price(conn,pid,cost):
     return None
 
 
-def validate_delivery_snapshot(raw,subtotal,costs):
+
+# Opt-in promotion: a displayed EGP 95 premium on each piece, and an EGP 95
+# order-level discount on each piece after the first. Historical DB catalog
+# prices remain untouched, so a Safka sync never adds the premium twice.
+BUNDLE_PREMIUM_PIASTRES = 9500
+
+def bundle_enabled():
+    return os.getenv('SHOPY_BUNDLE_OFFER_ENABLED', '0') == '1'
+
+def displayed_product_price(product):
+    return product['price'] + (BUNDLE_PREMIUM_PIASTRES if bundle_enabled() else 0)
+
+def checkout_offer(conn, rows, rate):
+    """Compute a fully funded, server-side price snapshot without updating products.
+
+    The single-item shipping reduction is merchant-funded and explicitly
+    configured in EGP; the quote always uses the verified governorate rate.
+    The merchant's retained contribution cannot dip below the configured floor.
+    """
+    if not bundle_enabled():
+        legacy = shipping_offer(conn, rows, rate)
+        displayed = sum(p['price'] * q for p, q, *_ in rows)
+        return dict(legacy, displayed_subtotal=displayed,
+                    merchandise_total=displayed, bundle_discount=0,
+                    bundle_offer_version=0, bundle_unit_count=sum(q for _, q, *_ in rows))
+    if rate is None:
+        raise ValueError('Shipping destination is unavailable')
+    standard, supplier_shipping = rate
+    if not all(isinstance(value, int) and not isinstance(value, bool) and value >= 0
+               for value in (standard, supplier_shipping)):
+        raise ValueError('Verified supplier shipping cost is required')
+    if not rows or any(not isinstance(q, int) or isinstance(q, bool) or q < 1
+                       or p['supplier_cost'] is None or p['supplier_cost'] <= 0
+                       for p, q, *_ in rows):
+        raise ValueError('Supplier costs are missing; bundle offer requires price review')
+    units = sum(q for _, q, *_ in rows)
+    displayed = sum(displayed_product_price(p) * q for p, q, *_ in rows)
+    discount = BUNDLE_PREMIUM_PIASTRES * (units - 1)
+    merchandise = displayed - discount
+    if units >= 2:
+        delivery = 0
+    else:
+        raw_reduction = os.getenv('SHOPY_SINGLE_ITEM_SHIPPING_REDUCTION_EGP', '0')
+        try:
+            reduction = int(raw_reduction)
+        except (ValueError, TypeError):
+            raise ValueError('Invalid merchant shipping subsidy') from None
+        if not 0 <= reduction <= 500:
+            raise ValueError('Invalid merchant shipping subsidy')
+        delivery = min(standard, max(100, standard - reduction * 100))
+    floor = retained_profit_floor(merchandise)
+    supplier_goods = sum(p['supplier_cost'] * q for p, q, *_ in rows)
+    if merchandise + delivery - supplier_goods - supplier_shipping < floor:
+        raise ValueError('العرض غير متاح لهذه السلة مؤقتًا؛ يحتاج مراجعة هامش الربح قبل البيع.')
+    return {
+        'standard': standard, 'fee': delivery, 'discount': standard - delivery,
+        'floor': floor, 'displayed_subtotal': displayed,
+        'merchandise_total': merchandise, 'bundle_discount': discount,
+        'bundle_offer_version': 1, 'bundle_unit_count': units,
+    }
+
+def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
+    if raw.get('bundle_offer_version', 0) == 1:
+        standard=raw['shipping_standard_fee']
+        supplier=raw['supplier_shipping_piastres']
+        buyer=raw['customer_shipping_piastres']
+        discount=raw['shipping_discount']
+        bundle_discount=raw['bundle_discount']
+        units=raw['bundle_unit_count']
+        floor=raw['retained_profit_floor']
+        if not all(isinstance(v,int) and not isinstance(v,bool) for v in (standard,supplier,buyer,discount,bundle_discount,units,floor)):
+            raise ValueError('Invalid promotional order snapshot')
+        if units < 1 or quantity != units or standard != supplier+1000 or not 0 <= buyer <= standard or discount != standard-buyer:
+            raise ValueError('Promotional shipping snapshots do not reconcile')
+        if bundle_discount != BUNDLE_PREMIUM_PIASTRES*(units-1) or (units>=2 and buyer!=0) or (units==1 and buyer<100):
+            raise ValueError('Promotional discount does not match purchased quantity')
+        merchandise=subtotal-bundle_discount
+        if merchandise < 0 or floor != retained_profit_floor(merchandise) or merchandise+buyer-costs-supplier<floor:
+            raise ValueError('Promotional order violates retained merchant contribution')
+        return
+    if raw.get('bundle_offer_version', 0) not in (0,None):
+        raise ValueError('Unknown promotion version')
     standard=raw.get('shipping_standard_fee')
     discount=raw.get('shipping_discount',0)
     floor=raw.get('retained_profit_floor',0)
