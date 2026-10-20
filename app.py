@@ -537,7 +537,7 @@ def checkout():
   if len(name)<2 or not re.fullmatch(r'01[0125]\d{8}',phone) or len(address)<8 or len(city)<2 or len(area)<2:
    flash('راجع الاسم ورقم الموبايل والمدينة والمنطقة والعنوان التفصيلي')
    return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
-                        checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
+                        checkout_ready=(supplier_checkout_live() or not STAGING_MODE),promo_state=cart_promo_state())
   key=session['checkout_key']
   checked_details={}
   if supplier_cart and supplier_checkout_live():
@@ -630,12 +630,12 @@ def checkout():
            (type(exc).__name__[:80],cur.lastrowid))
   except ValueError as exc:
    flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
-        checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
+        checkout_ready=(supplier_checkout_live() or not STAGING_MODE),promo_state=cart_promo_state())
   session['cart']={};session.pop('checkout_key',None);session.pop('promo_code',None)
   session.setdefault('my_order_refs',[]).append(ref)
   return redirect('/order/success/'+ref)
  return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
-                        checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
+                        checkout_ready=(supplier_checkout_live() or not STAGING_MODE),promo_state=cart_promo_state())
 
 @app.route('/order/success/<ref>')
 def order_success(ref):
