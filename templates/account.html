@@ -18,4 +18,28 @@
 </div>
 {% include '_pagination.html' %}
 <form method="post" action="/logout" class="logout-row"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline">تسجيل الخروج</button></form>
-<section class="panel account-connections"><h2>ربط حسابات الدخول</h2><p>اربط Google لتدخل إلى نفس حسابك وطلباتك.</p>{% for provider,label in [('google','Google')] %}{% if provider in linked_providers %}<p>{{label}} — مربوط ✓</p>{% else %}<form action="/auth/{{provider}}/start" method="post"><input type="hidden" name="csrf" value="{{csrf}}">{% if user.role=='admin' %}<label>كلمة مرور الإدارة لتأكيد الربط<input type="password" name="password" required autocomplete="current-password"></label>{% endif %}<button class="btn btn-outline" {% if not social_providers.get(provider) %}disabled{% endif %}>ربط {{label}}{% if not social_providers.get(provider) %} — قريبًا{% endif %}</button></form>{% endif %}{% endfor %}</section>{% endblock %}
+{% if user.role=='customer' %}
+<section class="panel account-danger-zone" aria-labelledby="account-delete-heading">
+ <h2 id="account-delete-heading">إدارة الحساب</h2>
+ <p class="subtle">تقدر تحذف حسابك من المتجر. الطلبات السابقة تفضل محفوظة بالقدر اللازم للتوصيل والمحاسبة، وحساب Google نفسه مش هيتحذف.</p>
+ <button type="button" class="btn btn-danger-outline" data-open-account-delete>حذف الحساب</button>
+</section>
+<dialog id="account-delete-dialog" class="account-delete-dialog" aria-labelledby="confirm-delete-heading">
+ <h2 id="confirm-delete-heading">متأكد إنك عايز تحذف حسابك؟</h2>
+ <p>القرار ده نهائي: هيتحذف حسابك ومفضلاتك وتقييماتك من المتجر، ومش هتقدر تتابع الطلبات القديمة من حسابك. هنحتفظ بسجلات الطلبات اللازمة للتوصيل والمحاسبة.</p>
+ <form method="post" action="/account/delete">
+  <input type="hidden" name="csrf" value="{{csrf}}">
+  <label>اكتب البريد الإلكتروني لحسابك للتأكيد
+   <input name="confirm_email" type="email" autocomplete="off" required placeholder="your@email.com">
+  </label>
+  <label>اكتب كلمة «حذف» للتأكيد
+   <input name="confirm_word" required autocomplete="off" placeholder="حذف">
+  </label>
+  <div class="account-delete-actions">
+   <button type="button" class="btn btn-safe" data-close-account-delete>إلغاء</button>
+   <button type="submit" class="btn btn-danger">حذف</button>
+  </div>
+ </form>
+</dialog>
+{% endif %}
+{% endblock %}
