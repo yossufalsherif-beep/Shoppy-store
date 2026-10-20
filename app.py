@@ -14,7 +14,7 @@ from ui_queries import paginate, price_filter, order_filters, grouped, ORDER_LAB
 from safka_status import SUPPLIER_STATUS_LABELS, apply_order_status_event
 from urllib.parse import urlencode
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
-from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, CatalogValidationError
+from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, migrate_supplier_product_slugs, CatalogValidationError
 from safka_dry_run import prepare_dry_run
 from safka_live_orders import (canonical_order, load_contract, build_payload,
     submit_payload, claim_one_test_order, record_outcome, OrderContractError)
@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS shipping_zones (id INTEGER PRIMARY KEY,governorate TE
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(active,category);
 CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);''')
   init_safka_schema(c)
+  migrate_supplier_product_slugs(c)
   c.executescript("""CREATE TABLE IF NOT EXISTS favorites(
      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
      product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -273,7 +274,12 @@ def product(slug):
  capture_campaign()
  with db() as c:
   p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(slug,)).fetchone()
-  if not p:abort(404)
+  if not p:
+   alias=c.execute('SELECT product_id FROM product_slug_aliases WHERE slug=?',(slug,)).fetchone()
+   if alias:
+    moved=c.execute("SELECT slug FROM products WHERE id=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(alias['product_id'],)).fetchone()
+    if moved:return redirect('/products/'+moved['slug'],code=301)
+   abort(404)
   others=c.execute("SELECT * FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
  with db() as c:
   media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
