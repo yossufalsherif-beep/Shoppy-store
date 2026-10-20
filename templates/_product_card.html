@@ -6,7 +6,7 @@
  <button class="favorite-heart {{'is-favorite' if item.id in fav_ids else ''}}" type="submit" aria-pressed="{{'true' if item.id in fav_ids else 'false'}}" aria-label="{{'إزالة من المفضلة' if item.id in fav_ids else 'إضافة إلى المفضلة'}}: {{item.title}}" title="المفضلة"><span data-heart-symbol aria-hidden="true">{{'♥' if item.id in fav_ids else '♡'}}</span></button></form></div>
  <a href="/products/{{item.slug}}" class="product-info-link"><div class="product-card-info"><h3>{{item.title}}</h3>
  {% set customer_rating=ratings_map.get(item.id) %}{% if customer_rating %}<small class="product-rating">★ {{'%.1f'|format(customer_rating.avg)}} ({{customer_rating.count}} رأي)</small>{% endif %}
- <div class="product-card-bottom"><strong>{{money(item.price)}} <small>ج.م</small></strong><span class="card-detail-link">التفاصيل ←</span></div></div></a>
+ <div class="product-card-bottom"><strong>{{money(shown_price(item))}} <small>ج.م</small></strong><span class="card-detail-link">التفاصيل ←</span></div></div></a>
  <form class="quick-cart-form" method="post" action="/cart/add/{{item.id}}" data-async="cart"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="return_to" value="{{request.full_path if request.query_string else request.path}}">
  {% for key,values in product_choices(item).items() %}<label>{{key}}<select name="option_{{key}}" required aria-label="{{key}} — {{item.title}}"><option value="">اختار {{key}}</option>{% for value in values %}<option value="{{value}}">{{value}}</option>{% endfor %}</select></label>{% endfor %}
  <button class="btn btn-dark btn-wide" type="submit" {% if not can_order(item) %}disabled{% endif %}>{{'أضف للسلة +' if can_order(item) else 'غير متاح حاليًا'}}</button></form>
