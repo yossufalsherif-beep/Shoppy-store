@@ -916,6 +916,81 @@ def replace_manual_catalog():
  flash('تم الاستبدال بأمان، وحفظ نسخة احتياطية خاصة من البيانات القديمة. المنتجات: '+str(result['removed_products'])+', تسعيرات الشحن: '+str(result['removed_shipping']+result['removed_zones']))
  return redirect('/admin#integrations')
 
+
+@app.template_filter('egypt_promo_date')
+def egypt_promo_date(value):
+ try:return datetime.fromtimestamp(int(value),tz=ZoneInfo('Africa/Cairo')).strftime('%Y-%m-%dT%H:%M')
+ except (ValueError,TypeError,OverflowError):return ''
+
+
+@app.get('/admin/promo-codes')
+@admin_only
+def admin_promo_codes():
+ with db() as conn:codes=conn.execute('SELECT * FROM promo_codes ORDER BY created_at DESC,code LIMIT 200').fetchall()
+ return render_template('promo_admin.html',codes=codes,now_epoch=int(time.time()))
+
+
+def egypt_datetime_epoch(value):
+ if not value:raise PromoError('حدد تاريخ ووقت بداية ونهاية الكود.')
+ try:
+  moment=datetime.strptime(value,'%Y-%m-%dT%H:%M')
+  return int(moment.replace(tzinfo=ZoneInfo('Africa/Cairo')).timestamp())
+ except (ValueError,OverflowError):
+  raise PromoError('صيغة التاريخ والوقت غير صحيحة.') from None
+
+
+@app.post('/admin/promo-codes/create')
+@admin_only
+def admin_create_promo():
+ try:
+  percentage=int(request.form.get('percent',''))
+  uses=None if request.form.get('unlimited')=='1' else int(request.form.get('max_uses',''))
+  start=egypt_datetime_epoch(request.form.get('starts_at',''))
+  end=egypt_datetime_epoch(request.form.get('expires_at',''))
+  with db() as conn:create_code(conn,request.form.get('code',''),percentage,uses,start,end)
+  flash('تم إنشاء البرومو كود.')
+ except (PromoError,ValueError) as exc:
+  flash(str(exc) if isinstance(exc,PromoError) else 'راجع نسبة الخصم وعدد الاستخدامات.')
+ return redirect('/admin/promo-codes')
+
+
+@app.post('/admin/promo-codes/<code>/toggle')
+@admin_only
+def admin_toggle_promo(code):
+ try:code=normalize_code(code)
+ except PromoError:abort(400)
+ with db() as conn:
+  row=conn.execute('SELECT active FROM promo_codes WHERE code=?',(code,)).fetchone()
+  if row is None:abort(404)
+  conn.execute('UPDATE promo_codes SET active=? WHERE code=?',(0 if row['active'] else 1,code))
+ flash('تم تحديث حالة كود الخصم.')
+ return redirect('/admin/promo-codes')
+
+
+@app.post('/admin/promo-codes/<code>/edit')
+@admin_only
+def admin_edit_promo(code):
+ try:
+  code=normalize_code(code)
+  percent=int(request.form.get('percent',''))
+  limit=None if request.form.get('unlimited')=='1' else int(request.form.get('max_uses',''))
+  starts=egypt_datetime_epoch(request.form.get('starts_at',''))
+  expires=egypt_datetime_epoch(request.form.get('expires_at',''))
+  if not 1<=percent<=100 or (limit is not None and not 1<=limit<=10000000) or expires<=starts or expires<=int(time.time()):
+   raise PromoError('راجع نسبة الخصم وعدد الاستخدامات وتواريخ الصلاحية.')
+  with db() as conn:
+   row=conn.execute('SELECT used_count FROM promo_codes WHERE code=?',(code,)).fetchone()
+   if not row:abort(404)
+   if limit is not None and limit<row['used_count']:
+    raise PromoError('الحد الجديد ماينفعش يكون أقل من عدد الاستخدامات السابقة.')
+   conn.execute('UPDATE promo_codes SET percent=?,max_uses=?,starts_at=?,expires_at=? WHERE code=?',
+                (percent,limit,starts,expires,code))
+  flash('تم تعديل البرومو كود.')
+ except (PromoError,ValueError) as exc:
+  flash(str(exc) if isinstance(exc,PromoError) else 'راجع القيم المدخلة.')
+ return redirect('/admin/promo-codes')
+
+
 @app.route('/admin')
 @admin_only
 def admin():
