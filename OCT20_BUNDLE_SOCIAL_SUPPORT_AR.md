@@ -18,10 +18,15 @@ data migration and a live manual checkout preview. Existing orders keep their pr
   and OPTIONAL reduction EGP 45 (not activated):
   one piece shows EGP 50 shipping; 2+ pieces show free delivery.
   The owner gave EGP 40 only as an illustration, not a final approved tariff.
-- Price protection: supplier costs must be verified; each order must preserve
-  at least max(EGP 30, 15% of discounted merchandise revenue) after goods and
-  supplier delivery, but before ads, returns, tax and other costs. Insufficient
-  margin blocks the offer; it MUST NOT silently charge unexpected fees.
+- Updated bundle margin policy (new offer version 2): keep the **same +95 EGP**
+  display premium regardless of destination; no blanket product price increases.
+  New bundle orders may earn less than the former 15% / EGP 30 guardrail,
+  but must retain at least **EGP 1 positive contribution** after supplier
+  product cost and actual Safka shipping. That amount excludes ad spend,
+  returns, payment costs, and other overhead, so it is not net profit.
+- Existing version 1 bundle order snapshots retain their original 15%/EGP 30
+  validation. Orders that fall below EGP 1 contribution are blocked, not
+  silently repriced or charged extra shipping. Verify supplier tariffs first.
 - Old checkout signatures, orders and saved order item snapshots are preserved.
   New orders explicitly snapshot the piece discount, version and unit count.
 
