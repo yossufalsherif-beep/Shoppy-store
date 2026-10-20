@@ -472,6 +472,52 @@ def safka_shipping_cities():
  return jsonify(cities=[r['city'] for r in rows][:1000])
 
 
+# Diagnostic exists only in an isolated preview branch; never merge into production.
+@app.get('/__internal/read-only-supplier-check-20261021')
+def readonly_safka_checkout_diagnostic():
+ if os.getenv('VERCEL_ENV') != 'preview':abort(404)
+ from safka_webhooks import fetch_product_detail
+ from safka_auto_orders import active_product_property
+ from urllib.error import HTTPError
+ key=os.getenv('SHOPY_SAFKA_API_KEY','').strip()
+ result=[]
+ with db() as conn:
+  products=conn.execute('SELECT * FROM products WHERE id IN (475,476) ORDER BY id').fetchall()
+ for p in products:
+  item={'product':p['id'],'local_active':p['active']==1,'supplier_cache_present':bool(p['supplier_last_sync']),
+        'configured':bool(key),'kind':'unchecked'}
+  if key:
+   try:
+    normalized,raw=fetch_product_detail(key,p['supplier_product_id'],timeout=6)
+    item['kind']='fetched'
+    item['supplier_active']=raw.get('is_active') is True
+    item['parent_price_equal']=normalized['supplier_cost']==p['supplier_cost']
+    item['raw_property_count']=len(raw.get('properties') or [])
+    item['raw_options_match_local']=normalized['options']==json.loads(p['options_json'] or '{}')
+    choices=[{}]
+    opts=json.loads(p['options_json'] or '{}')
+    if len(opts)==1:
+     name,values=next(iter(opts.items()))
+     choices=[{name:v} for v in values[:3]]
+    checks=[]
+    for one in choices:
+     try:
+      ident=active_product_property(raw,one,1)
+      checks.append({'selected':bool(one),'result':'ok','property_found':bool(ident)})
+     except (OrderContractError,CatalogValidationError,ValueError,TypeError) as exc:
+      reason=str(exc).lower()
+      codes={'ambiguous':'multiple_properties','no properties':'no_properties','insufficient':'insufficient_stock',
+       'required':'missing_property_id','option mapping':'option_mapping','missing':'missing_property_id',
+       'inactive':'inactive','invalid':'invalid_property','unavailable':'unavailable','selection':'needs_selection'}
+      code=next((v for k,v in codes.items() if k in reason),'blocked')
+      checks.append({'selected':bool(one),'result':'blocked','reason_code':code})
+    item['option_checks']=checks
+   except HTTPError as exc:item.update(kind='provider_http_error',status_code=int(exc.code))
+   except (OSError,ValueError,KeyError,TypeError,OrderContractError,CatalogValidationError) as exc:
+    item.update(kind='provider_read_error',exception_type=type(exc).__name__)
+  result.append(item)
+ return jsonify(preview_only=True,read_only=True,products=result)
+
 @app.route('/checkout',methods=['GET','POST'])
 def checkout():
  if not current_user():
