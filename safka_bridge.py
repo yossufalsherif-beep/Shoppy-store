@@ -6,6 +6,7 @@ verified against the marketer's actual Safka credentials before enabling writes.
 import json
 import re
 import sqlite3
+import unicodedata
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import urlparse
@@ -19,6 +20,38 @@ SHIPPING_MARKUP_PIASTRES = 1000
 
 class CatalogValidationError(ValueError):
     pass
+
+
+def human_product_slug(title):
+    value = unicodedata.normalize('NFKC', str(title or '')).lower()
+    value = re.sub(r'[^\w\u0600-\u06ff]+', '-', value, flags=re.UNICODE)
+    value = re.sub(r'[_-]+', '-', value).strip('-')[:72].strip('-')
+    return value or 'shoppy-store'
+
+
+def free_product_slug(conn, title):
+    base = human_product_slug(title)
+    for n in range(1, 100000):
+        slug = base if n == 1 else base + '-' + str(n)
+        exists = conn.execute('SELECT id FROM products WHERE slug=?', (slug,)).fetchone()
+        alias = conn.execute('SELECT product_id FROM product_slug_aliases WHERE slug=?', (slug,)).fetchone()
+        if not exists and not alias:
+            return slug
+    raise ValueError('No free product URL')
+
+
+def migrate_supplier_product_slugs(conn):
+    """Keep redirects for past advertising product URLs."""
+    conn.execute("""CREATE TABLE IF NOT EXISTS product_slug_aliases(
+        slug TEXT PRIMARY KEY,
+        product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE)""")
+    rows = conn.execute("SELECT id,title,slug FROM products WHERE source='safka' AND slug LIKE 'safka-%' ORDER BY id").fetchall()
+    for row in rows:
+        friendly = free_product_slug(conn, row['title'])
+        conn.execute("INSERT INTO product_slug_aliases(slug,product_id) VALUES(?,?) ON CONFLICT(slug) DO NOTHING",
+                     (row['slug'], row['id']))
+        conn.execute("UPDATE products SET slug=? WHERE id=? AND slug=?", (friendly, row['id'], row['slug']))
+    return len(rows)
 
 
 def egp_to_piastres(value):
@@ -243,6 +276,9 @@ def normalize_shipping(raw):
 
 def init_safka_schema(conn):
     init_market_schema(conn)
+    conn.execute("""CREATE TABLE IF NOT EXISTS product_slug_aliases(
+        slug TEXT PRIMARY KEY,
+        product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE)""")
     cols = {r['name'] for r in conn.execute('PRAGMA table_info(products)')}
     for key, definition in (
         ('source', "TEXT NOT NULL DEFAULT 'manual'"),
@@ -342,9 +378,8 @@ def import_products(conn, records, *, complete=False, source_label='local-json')
                       p['supplier_rating'],p['supplier_review_count'],pid))
                 conn.execute("UPDATE products SET supplier_listed=1 WHERE id=?",(pid,))
             else:
-                # Provider ID is opaque; a generated local slug is stable on re-sync.
-                import hashlib
-                slug = 'safka-' + hashlib.sha256(p['supplier_id'].encode()).hexdigest()[:20]
+                # Stable readable name; collisions get numeric suffixes.
+                slug = free_product_slug(conn, p['title'])
                 cur = conn.execute('''INSERT INTO products(title,slug,description,price,image,active,options_json,category,
                                     supplier_cost,source,supplier_product_id,supplier_product_code,supplier_stock,supplier_last_sync,supplier_available,supplier_rating,supplier_review_count)
                                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
