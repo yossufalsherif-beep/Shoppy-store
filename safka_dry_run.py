@@ -37,7 +37,7 @@ def prepare_dry_run(conn, order_id):
         supplier_items_total += cost * item['quantity']
     try:validate_delivery_snapshot(raw,items_total,supplier_items_total,sum(x['quantity'] for x in raw['items']))
     except ValueError as exc:raise CatalogValidationError(str(exc)) from None
-    net_items_total=items_total-raw.get('bundle_discount',0)
+    net_items_total=items_total-raw.get('bundle_discount',0)-raw.get('promo_discount',0)
     if net_items_total + buyer_ship != raw['customer_total_piastres']:
         raise CatalogValidationError('Customer order total does not match saved item/shipping snapshots')
     return {
@@ -53,6 +53,9 @@ def prepare_dry_run(conn, order_id):
         'items': raw['items'],
         'customer_products_piastres': net_items_total,
         'bundle_discount_piastres': raw.get('bundle_discount',0),
+        'promo_code':raw.get('promo_code',''),
+        'promo_percent':raw.get('promo_percent',0),
+        'promo_discount_piastres':raw.get('promo_discount',0),
         'customer_shipping_piastres': buyer_ship,
         'total_to_collect_piastres': raw['customer_total_piastres'],
         'estimated_supplier_products_piastres': supplier_items_total,
