@@ -18,7 +18,8 @@
    const body=new FormData(form);
    // Submitter's + / - value is not included in FormData(form) by all browsers.
    if(form.dataset.async==='quantity'&&button?.name)body.set(button.name,button.value);
-   const response=await fetch(form.action,{method:'POST',body,credentials:'same-origin',headers:{Accept:'application/json'}});
+   const endpoint=form.getAttribute('action')||window.location.pathname;
+   const response=await fetch(new URL(endpoint,window.location.href).href,{method:'POST',body,credentials:'same-origin',headers:{Accept:'application/json'}});
    if(!response.headers.get('content-type')?.includes('application/json')){
     // A proxy/error page must never be mistaken for a successful cart update.
     // Allow the normal HTML form route on the next click as a safe fallback.
