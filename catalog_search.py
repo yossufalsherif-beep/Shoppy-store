@@ -28,12 +28,19 @@ def normalize(text):
     text = unicodedata.normalize('NFKC', str(text or '')).casefold()
     text = re.sub(r'[\u064b-\u065f\u0670\u0640]', '', text)
     text = re.sub('[إأآٱ]', 'ا', text).replace('ى','ي').replace('ة','ه').replace('ؤ','و').replace('ئ','ي')
-    return re.sub(r'[^\w\u0600-\u06ff]+',' ',text).strip()
+    text = re.sub(r'[^\w\u0600-\u06ff]+', ' ', text).strip()
+    # Egyptian colloquial ضهر and standard Arabic ظهر mean the same body part.
+    # Replace only whole words (plus common attached particles/pronouns), not
+    # every ض or ظ: a blanket character swap would introduce false results.
+    return re.sub(r'(?<!\w)(بال|وال|لل|ال|ب|ل|و)?ضهر(ها|هم|كم|نا|ي|ك|ه)?(?!\w)',
+                  lambda match:(match.group(1) or '')+'ظهر'+(match.group(2) or ''),text)
 
 def words(text,ignore_stopwords=True):
     output=[]
     for word in normalize(text).split():
-        if word.startswith('ال') and len(word)>=5:
+        if word in ('بالظهر','للظهر','والظهر','بظهر','لظهر','وظهر'):
+            word='ظهر'
+        elif word.startswith('ال') and len(word)>=5:
             word=word[2:]
         if len(word)>=2 and (not ignore_stopwords or word not in STOPWORDS):
             output.append(word)

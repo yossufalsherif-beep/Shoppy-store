@@ -27,6 +27,35 @@ class SmartSearchTests(unittest.TestCase):
         self.assertEqual(search_ranked(self.rows,'تصفيف الشعر')[0]['id'],1)
         self.assertEqual(search_ranked(self.rows,'مشطط تصفيف')[0]['id'],1)
         self.assertEqual(search_ranked(self.rows,'تليفزيون'),[])
+    def test_colloquial_dahr_and_formal_zahr_produce_identical_results(self):
+        products = self.rows + [
+            {'id':5,'title':'حزام دعم الظهر الطبي','description':'مريح للظهر','category':'العناية بالجسم','price':21000},
+            {'id':6,'title':'مسند ضهر للكرسي','description':'دعم الضهر','category':'مستلزمات المنزل','price':16000},
+            {'id':7,'title':'شاشة عرض','description':'جهاز عرض الصور','category':'إلكترونيات','price':80000},
+        ]
+        for spelling_a,spelling_b in (
+            ('ضهر','ظهر'),('الضهر','الظهر'),
+            ('مسند ضهر','مسند ظهر'),
+            ('حزام دعم الضهر','حزام دعم الظهر'),
+            ('للضهر','للظهر'),
+        ):
+            with self.subTest(a=spelling_a,b=spelling_b):
+                a = [item['id'] for item in search_ranked(products,spelling_a)]
+                b = [item['id'] for item in search_ranked(products,spelling_b)]
+                self.assertEqual(a,b)
+        self.assertEqual([item['id'] for item in search_ranked(products,'ظهر')],[6,5])
+        self.assertNotIn(7,[item['id'] for item in search_ranked(products,'ضهر')])
+
+    def test_only_known_spelling_variant_is_folded_not_all_dad_za(self):
+        for colloquial,formal in (
+            ('ضهر','ظهر'),('الضهر','الظهر'),('بالضهر','بالظهر'),
+            ('للضهر','للظهر'),('ضهري','ظهري'),('وجع الضهر','وجع الظهر'),
+        ):
+            with self.subTest(colloquial=colloquial):
+                self.assertEqual(normalize(colloquial),normalize(formal))
+        self.assertNotEqual(normalize('ظلم'),normalize('ضلم'))
+        self.assertNotEqual(normalize('ضابط'),normalize('ظابط'))
+
     def test_price_sort_after_relevance_filter(self):
         products=search_ranked(self.rows,'مشط',sort='price_low')
         self.assertEqual([x['id'] for x in products],[3,1])
