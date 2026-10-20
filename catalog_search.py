@@ -14,8 +14,8 @@ STOPWORDS = {'عايز','عاوزه','عاوز','عايزه','اريد','محت�
              'او','و','مع','ل','ابحث','بحث','دور','هات','افضل','احسن','لل'}
 GROUPS = (
  ('سشوار','سيشوار','استشوار','مجفف'),
- ('مكنسه','مساحه','مكنسه كهربائيه'),
- ('كوتشي','حذاء','جزمه','صندل'),
+ ('مكنسه','مساحه','vacuum'),
+ ('كوتشي','حذاء','جزمه'),
  ('سماعه','هيدفون','هيدسيت','headphone','headset'),
  ('شاحن','شارجر','charger'),
  ('جوال','موبايل','هاتف','تليفون','phone'),
@@ -30,12 +30,12 @@ def normalize(text):
     text = re.sub('[إأآٱ]', 'ا', text).replace('ى','ي').replace('ة','ه').replace('ؤ','و').replace('ئ','ي')
     return re.sub(r'[^\w\u0600-\u06ff]+',' ',text).strip()
 
-def words(text):
+def words(text,ignore_stopwords=True):
     output=[]
     for word in normalize(text).split():
         if word.startswith('ال') and len(word)>=5:
             word=word[2:]
-        if len(word)>=2 and word not in STOPWORDS:
+        if len(word)>=2 and (not ignore_stopwords or word not in STOPWORDS):
             output.append(word)
     return output[:20]
 
@@ -61,7 +61,7 @@ def _field_match(term, tokens):
     return max((_match(alt,tokens,False)*.60 for alt in SYNONYMS.get(term,()) if alt!=term),default=0)
 
 def relevance(row, query_tokens, original_phrase):
-    title=words(row['title']); category=words(row['category']); desc=words(row['description'])
+    title=words(row['title'],False); category=words(row['category'],False); desc=words(row['description'],False)
     if not title:return None
     score=0; strong_matches=0; title_matches=0
     for term in query_tokens:
@@ -88,7 +88,7 @@ def relevance(row, query_tokens, original_phrase):
     return (strong_matches>0,score,int(row['id']))
 
 def search_ranked(products,query,sort='relevance'):
-    terms=list(dict.fromkeys(words(query)))[:10]
+    terms=list(dict.fromkeys(words(query) or words(query,False)))[:10]
     if not terms:return []
     strong=[];weak=[]
     for row in products:
