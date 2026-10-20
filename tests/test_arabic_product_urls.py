@@ -30,21 +30,20 @@ class ArabicProductRouteTests(unittest.TestCase):
         self.assertIn(self.slug,variants)
         with store.app.test_request_context('/products/'+encoded):
             page=store.product(encoded)
-            self.assertEqual(page.status_code,200)
-            self.assertIn(self.slug.encode('utf-8'),page.get_data())
+            self.assertIn(self.slug,page)
 
     def test_double_encoded_slug_is_supported(self):
         double=quote(quote(self.slug))
         with store.app.test_request_context('/products/'+double):
             page=store.product(double)
-            self.assertEqual(page.status_code,200)
+            self.assertIn(self.slug,page)
 
     def test_latin1_mojibake_is_recovered_without_guessing(self):
         mojibake=self.slug.encode('utf-8').decode('latin-1')
         self.assertIn(self.slug,store.product_slug_variants(mojibake))
         with store.app.test_request_context('/products/'+quote(self.slug)):
             page=store.product(mojibake)
-            self.assertEqual(page.status_code,200)
+            self.assertIn(self.slug,page)
 
     def test_no_matching_product_still_404(self):
         with store.app.test_request_context('/products/%D8%A7%D8%B3%D9%85'):
