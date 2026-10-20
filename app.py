@@ -13,6 +13,10 @@ from social_auth import init_social_schema, configured_providers, start_flow, ex
 from ui_queries import paginate, price_filter, order_filters, grouped, ORDER_LABELS
 from safka_status import SUPPLIER_STATUS_LABELS, apply_order_status_event
 from urllib.parse import urlencode, unquote
+from zoneinfo import ZoneInfo
+from datetime import datetime
+from promo_codes import (init_promo_schema, create_code, get_active_code, calculate_discount,
+                         consume_code, normalize_code, PromoError)
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
 from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, migrate_supplier_product_slugs, CatalogValidationError
 from safka_dry_run import prepare_dry_run
@@ -52,6 +56,7 @@ CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY,order_id INTEGER N
   init_notification_store(c)
   init_social_schema(c)
   init_pricing_schema(c)
+  init_promo_schema(c)
   # Forward-only, additive SQLite migration, preserving all V2 rows.
   pc={r['name'] for r in c.execute('PRAGMA table_info(products)')}
   if 'options_json' not in pc:c.execute("ALTER TABLE products ADD COLUMN options_json TEXT NOT NULL DEFAULT '{}'")
@@ -389,10 +394,43 @@ def cart_data():
    rows.append((p,q,choices,key))
  return rows
 
+
+def cart_promo_state():
+ code=session.get('promo_code','')
+ if not code:return None
+ with db() as conn:
+  try:
+   row=get_active_code(conn,code)
+   return {'code':row['code'],'percent':row['percent'],'active':True}
+  except PromoError as exc:return {'code':str(code)[:32],'percent':0,'active':False,'message':str(exc)}
+
+
+@app.get('/promo-code')
+def customer_promo_page():
+ return render_template('promo_customer.html',promo_state=cart_promo_state())
+
+
+@app.post('/promo-code/apply')
+def apply_customer_promo():
+ action=request.form.get('action','apply')
+ dest=request.form.get('return_to','/cart')
+ if dest not in ('/cart','/checkout','/promo-code'):dest='/cart'
+ if action=='remove':
+  session.pop('promo_code',None)
+  flash('تم إزالة كود الخصم.')
+  return redirect(dest)
+ try:
+  with db() as conn:promo=get_active_code(conn,request.form.get('promo_code',''))
+  session['promo_code']=promo['code']
+  flash('تم إضافة كود الخصم. هنتأكد من قيمته وهامش الربح قبل تأكيد الطلب.')
+ except PromoError as exc:flash(str(exc))
+ return redirect(dest)
+
+
 @app.route('/cart',methods=['GET','POST'])
 def cart():
  if request.method=='POST':return change_cart_quantity()
- return render_template('cart.html',rows=cart_data())
+ return render_template('cart.html',rows=cart_data(),promo_state=cart_promo_state())
 
 @app.post('/cart/quantity')
 def change_cart_quantity():
@@ -424,7 +462,7 @@ def change_cart_quantity():
  session['cart']=cart
  if wants_json:
   return jsonify(ok=True,cart_count=sum(cart.values()),
-                 cart_html=render_template('cart.html',rows=cart_data()))
+                 cart_html=render_template('cart.html',rows=cart_data(),promo_state=cart_promo_state()))
  return redirect('/cart')
 
 @app.post('/cart/remove')
