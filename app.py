@@ -275,10 +275,6 @@ def product(slug):
   p=c.execute("SELECT * FROM products WHERE slug=? AND (active=1 OR (source='safka' AND supplier_listed=1))",(slug,)).fetchone()
   if not p:abort(404)
   others=c.execute("SELECT * FROM products WHERE (active=1 OR (source='safka' AND supplier_listed=1)) AND id!=? ORDER BY CASE WHEN category=? AND category!='' THEN 0 ELSE 1 END,id DESC LIMIT 4",(p['id'],p['category'])).fetchall()
- if p['source']=='safka' and os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1':
-  from safka_checkout import refresh_product
-  try:p=refresh_product(db,p)
-  except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):pass
  with db() as c:
   media=c.execute('SELECT * FROM product_media WHERE product_id=? ORDER BY position,id',(p['id'],)).fetchall()
   user=current_user()
@@ -359,25 +355,31 @@ def change_cart_quantity():
  key=request.form.get('key','')
  action=request.form.get('action','')
  cart=session.get('cart',{})
- if action not in ('increase','decrease') or key not in cart:abort(400)
+ wants_json='application/json' in request.headers.get('Accept','')
+ def error(message,status=400):
+  if wants_json:return jsonify(ok=False,message=message),status
+  flash(message)
+  return redirect('/cart')
+ if key not in cart:return error('المنتج غير موجود في السلة')
  pid,_=decoded_cart_key(key)
  previous=cart[key]
- if pid is None or type(previous) is not int or not 1<=previous<=99:abort(400)
+ if pid is None or type(previous) is not int or not 1<=previous<=99:return error('بيانات السلة غير صحيحة')
+ if action not in ('increase','decrease'):return error('اختيار تعديل الكمية غير صحيح')
  if action=='decrease':
   if previous==1:cart.pop(key)
   else:cart[key]=previous-1
  else:
-  if previous>=99:
-   flash('الحد الأقصى 99 قطعة من نفس الاختيار')
-   return redirect('/cart')
+  if previous>=99:return error('الحد الأقصى 99 قطعة من نفس الاختيار',422)
   with db() as c:p=c.execute('SELECT * FROM products WHERE id=? AND active=1',(pid,)).fetchone()
-  if not p:abort(404)
+  if not p:return error('المنتج غير متاح حاليًا',404)
   combined=previous+1+sum(q for k,q in cart.items() if k!=key and type(q) is int and decoded_cart_key(str(k))[0]==pid)
   if p['source']=='safka' and not supplier_stock_ready(p,combined):
-   flash('الكمية المطلوبة غير متوفرة حاليًا؛ اختار كمية أقل')
-   return redirect('/cart')
+   return error('الكمية المطلوبة غير متوفرة حاليًا؛ اختار كمية أقل',409)
   cart[key]=previous+1
  session['cart']=cart
+ if wants_json:
+  return jsonify(ok=True,cart_count=sum(cart.values()),
+                 cart_html=render_template('cart.html',rows=cart_data()))
  return redirect('/cart')
 
 @app.post('/cart/remove')
@@ -411,11 +413,7 @@ def quote_shipping():
 
 @app.get('/api/shipping-governorates')
 def safka_shipping_governorates():
- from safka_checkout import ensure_shipping
- try:
-  ensure_shipping(db)
- except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):
-  return jsonify(ok=False,message='تعذر تحميل مناطق التوصيل حاليًا. حاول مرة أخرى بعد قليل.'),503
+ # Serve the last owner/overnight-verified snapshot. Customer GETs never sync.
  with db() as conn:
   rates=conn.execute('SELECT DISTINCT governorate FROM safka_shipping_rates ORDER BY governorate').fetchall()
  return jsonify(ok=True,governorates=[r['governorate'] for r in rates])
@@ -440,17 +438,10 @@ def checkout():
  if not session.get('checkout_key'):session['checkout_key']=secrets.token_urlsafe(24)
  supplier_cart=any(p['source']=='safka' for p,_,_,_ in rows)
  mixed_cart=supplier_cart and any(p['source']!='safka' for p,_,_,_ in rows)
- shipping_error=False
- if supplier_cart and os.getenv('SHOPY_SAFKA_READ_ENABLED')=='1':
-  from safka_checkout import ensure_shipping
-  try:ensure_shipping(db)
-  except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):
-   shipping_error=True
-   flash('تعذر تحديث مناطق وأسعار التوصيل الآن. حاول مرة أخرى بعد قليل.')
+ # Customer visits use the stable shipping snapshot, not supplier API sync.
  with db() as c:
   rates=c.execute('SELECT DISTINCT governorate FROM safka_shipping_rates ORDER BY governorate').fetchall() if supplier_cart else c.execute('SELECT * FROM shipping ORDER BY governorate').fetchall()
  if request.method=='POST':
-  if shipping_error:return redirect('/checkout')
   if len(rows)!=len(session.get('cart',{})):
    flash('السلة فيها منتج لم يعد متاحًا أو بياناته قديمة. راجع السلة قبل تأكيد الطلب.')
    return redirect('/cart')
@@ -467,11 +458,7 @@ def checkout():
    try:
     checked_details=verify_checkout_products(rows)
    except (OrderContractError,CatalogValidationError,ValueError,OSError,TypeError,KeyError):
-    from safka_checkout import refresh_product
-    for product,_,_,_ in rows:
-     try:refresh_product(db,product,force=True)
-     except (CatalogValidationError,ValueError,OSError,TypeError,KeyError):pass
-    flash('تعذر تأكيد توفر أحد المنتجات أو تغيّر سعره. لم يتم إرسال طلب؛ راجع السلة وحاول مرة أخرى.')
+    flash('تعذر تأكيد توفر أحد المنتجات أو تغيّر سعره لدى المورد. لم يتم إرسال طلب؛ راجع السلة وحاول مرة أخرى.')
     return redirect('/cart')
   try:
    with db() as c:
