@@ -645,6 +645,16 @@ def setup_first_admin():
  from markupsafe import escape
  return app.response_class("""<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="robots" content="noindex"><title>إنشاء الأدمن الأول</title><body><h2>إنشاء الأدمن الأول (مرة واحدة فقط)</h2><form method="post"><input type="hidden" name="csrf" value="%s"><label>البريد الإلكتروني <input type="email" name="email" required autocomplete="email"></label><br><label>كلمة المرور الجديدة <input type="password" name="password" minlength="16" required autocomplete="new-password"></label><br><label>رمز الإعداد الخاص <input type="password" name="setup_token" required autocomplete="off"></label><br><button type="submit">إنشاء حساب الأدمن</button></form></body></html>""" % escape(csrf()),mimetype='text/html')
 
+@app.get('/privacy')
+def privacy_policy():
+ """Public, stable privacy URL required by Meta and customers."""
+ return render_template('privacy_policy.html')
+
+@app.get('/data-deletion')
+def data_deletion_instructions():
+ """Public instructions for the existing confirmed customer account removal flow."""
+ return render_template('data_deletion.html')
+
 @app.route('/login',methods=['GET','POST'])
 def login():
  if request.method=='POST':
