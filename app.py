@@ -480,14 +480,18 @@ def quote_shipping():
   fn=quote_safka_shipping if provider_cart else shipping_quote
   quoted=fn(conn,request.args.get('governorate',''),request.args.get('city',''),request.args.get('area',''))
   if quoted is None:return jsonify(ok=False,message='الشحن غير متاح للعنوان المحدد'),404
-  try:offer=checkout_offer(conn,rows,quoted)
-  except ValueError as exc:return jsonify(ok=False,message=str(exc)),409
+  try:
+   offer=checkout_offer(conn,rows,quoted)
+   promo_code=session.get('promo_code','')
+   promo_discount,promo_percent=calculate_discount(conn,promo_code,offer,rows,quoted)
+  except (ValueError,PromoError) as exc:return jsonify(ok=False,message=str(exc)),409
  quote_data=[request.args.get(k,'').strip() for k in ('governorate','city','area')]
- quote_data += [offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{})]
+ quote_data += [offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo_code,promo_discount]
  ticket=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').dumps(quote_data)
  return jsonify(ok=True,products_total_piastres=offer['displayed_subtotal'],
                 merchandise_total_piastres=offer['merchandise_total'],
                 bundle_discount_piastres=offer['bundle_discount'],
+                promo_code=promo_code,promo_percent=promo_percent,promo_discount_piastres=promo_discount,
                 bundle_unit_count=offer['bundle_unit_count'],
                 shipping_piastres=offer['fee'],
                 standard_shipping_piastres=(offer['fee'] if offer['bundle_offer_version']==3 else offer['standard']),
