@@ -353,8 +353,10 @@ def cart_data():
    rows.append((p,q,choices,key))
  return rows
 
-@app.route('/cart')
-def cart():return render_template('cart.html',rows=cart_data())
+@app.route('/cart',methods=['GET','POST'])
+def cart():
+ if request.method=='POST':return change_cart_quantity()
+ return render_template('cart.html',rows=cart_data())
 
 @app.post('/cart/quantity')
 def change_cart_quantity():
