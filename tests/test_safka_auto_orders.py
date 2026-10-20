@@ -7,9 +7,10 @@ import unittest
 from contextlib import contextmanager
 from unittest.mock import MagicMock,patch
 from safka_auto_orders import (
-    active_product_property,merchant_commission,live_enabled,submit_saved_order_once
+    active_product_property,verify_checkout_products,merchant_commission,live_enabled,submit_saved_order_once
 )
 from safka_live_orders import OrderContractError,OrderSubmissionOutcome
+from safka_bridge import normalize_product
 
 PROD='675a00000000000000000001'
 PROPERTY='675a00000000000000000002'
@@ -45,6 +46,28 @@ class SafkaDispatchTests(unittest.TestCase):
   with self.assertRaises(OrderContractError):
    active_product_property({'properties':[{'_id':PROPERTY}]},{'المقاس':'L'})
   self.assertEqual(active_product_property({'properties':[{'_id':PROPERTY}]},{}),PROPERTY)
+ def test_mixed_price_safka_property_28_piece_order_is_verified_without_sending(self):
+  raw={'_id':PROD,'name':'شنطة الشنيور والعدة المتكاملة','sale_price':870,'is_active':True,
+       'properties':[
+        {'_id':PROPERTY,'key':'عدد 28 قطعة','value':8,'sale_price':870,'is_available':True},
+        {'_id':'675a00000000000000000004','key':'عدد 33 قطعة','value':8,'sale_price':1150,'is_available':True}
+       ]}
+  normalized=normalize_product(raw)
+  self.assertEqual(normalized['options'],{'الاختيار':['عدد 28 قطعة']})
+  product={'supplier_product_id':PROD,'supplier_cost':87000}
+  calls=[]
+  def supplier_read(key,pid):
+   calls.append(pid)
+   return normalized,raw
+  with patch.dict(os.environ,FLAGS):
+   verified=verify_checkout_products([(product,1,{'الاختيار':'عدد 28 قطعة'},'item')],detail_fetch=supplier_read)
+   self.assertIn(PROD,verified)
+   self.assertEqual(calls,[PROD])
+   with self.assertRaises(OrderContractError):
+    verify_checkout_products([(product,1,{'الاختيار':'عدد 33 قطعة'},'item')],detail_fetch=supplier_read)
+   with self.assertRaises(OrderContractError):
+    verify_checkout_products([(product,1,{},'item')],detail_fetch=supplier_read)
+
  def test_no_commission_without_policy(self):
   with patch.dict(os.environ,{'SHOPY_SAFKA_COMMISSION_POLICY_VERIFIED':'0'}):
    with self.assertRaises(OrderContractError):
