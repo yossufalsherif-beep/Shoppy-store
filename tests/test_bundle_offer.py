@@ -323,7 +323,8 @@ class TwoPieceOfferTests(unittest.TestCase):
             self.assertNotIn('safka-',renamed['slug'])
         old_response=self.client.get('/products/'+old)
         self.assertEqual(old_response.status_code,301)
-        self.assertEqual(old_response.location,'/products/'+renamed['slug'])
+        from urllib.parse import unquote
+        self.assertEqual(unquote(old_response.location),'/products/'+renamed['slug'])
         fresh=self.client.get(old_response.location)
         self.assertEqual(fresh.status_code,200)
         self.assertIn(renamed['title'].encode('utf-8'),fresh.data)
