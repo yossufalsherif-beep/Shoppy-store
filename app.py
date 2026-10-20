@@ -572,9 +572,14 @@ def checkout():
       quoted=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').loads(request.form.get('quote_token',''),max_age=1800)
      except (BadSignature,SignatureExpired):
       raise ValueError('حدّث تكلفة التوصيل قبل تأكيد الطلب؛ لم يتم إرسال أي طلب.') from None
-     expected=[gov,city,area,offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{})]
+     promo_code=session.get('promo_code','')
+     promo_discount,promo_percent=calculate_discount(c,promo_code,offer,fresh,rate)
+     expected=[gov,city,area,offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo_code,promo_discount]
      if quoted!=expected:raise ValueError('تغيّرت السلة أو تكلفة الشحن. راجع الإجمالي وأكد الطلب مرة أخرى.')
-    total=offer['merchandise_total']+offer['fee'];ref='SH-'+secrets.token_hex(6).upper()
+    if not (supplier_cart and supplier_checkout_live()):
+     promo_code=session.get('promo_code','')
+     promo_discount,promo_percent=calculate_discount(c,promo_code,offer,fresh,rate)
+    total=offer['merchandise_total']-promo_discount+offer['fee'];ref='SH-'+secrets.token_hex(6).upper()
     full_address=' | '.join((city,area,address))
     pricing_doc=(shipping_pricing_document_id(c,gov,city,area,rate[0],rate[1]) if supplier_cart else None)
     city_row=(c.execute('SELECT city_id FROM safka_shipping_rates WHERE governorate=? AND city=? AND area=?',
@@ -583,12 +588,15 @@ def checkout():
     if supplier_cart and supplier_checkout_live() and (not pricing_doc or not supplier_city_id):
      raise ValueError('بيانات التوصيل غير مكتملة حاليًا. لم يتم إرسال الطلب.')
     cur=c.execute('''INSERT INTO orders(reference,user_id,customer,phone,governorate,address,shipping_fee,total,
-       checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id,safka_city_id,shipping_standard_fee,shipping_discount,retained_profit_floor,bundle_discount,bundle_offer_version,bundle_unit_count)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,offer['fee'],total,key,
-       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id,offer['standard'],offer['discount'],offer['floor'],offer['bundle_discount'],offer['bundle_offer_version'],offer['bundle_unit_count']))
+       checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id,safka_city_id,shipping_standard_fee,shipping_discount,retained_profit_floor,bundle_discount,bundle_offer_version,bundle_unit_count,
+       promo_code,promo_percent,promo_discount)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,offer['fee'],total,key,
+       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id,offer['standard'],offer['discount'],offer['floor'],offer['bundle_discount'],offer['bundle_offer_version'],offer['bundle_unit_count'],
+       promo_code,promo_percent,promo_discount))
     if cur.rowcount==0:
      existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
      return redirect('/order/success/'+existing['reference'])
+    if promo_code:consume_code(c,promo_code)
     for p,q,choices in fresh:
      c.execute('INSERT INTO order_items(order_id,product_id,title,unit_price,quantity,variant_json,unit_cost) VALUES(?,?,?,?,?,?,?)',(cur.lastrowid,p['id'],p['title'],displayed_product_price(p),q,json.dumps(choices,ensure_ascii=False),p['supplier_cost']))
     # Stage Safka order in the same transaction; submission requires verified API schema.
@@ -623,7 +631,7 @@ def checkout():
   except ValueError as exc:
    flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
         checkout_ready=(supplier_checkout_live() or not STAGING_MODE))
-  session['cart']={};session.pop('checkout_key',None)
+  session['cart']={};session.pop('checkout_key',None);session.pop('promo_code',None)
   session.setdefault('my_order_refs',[]).append(ref)
   return redirect('/order/success/'+ref)
  return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
