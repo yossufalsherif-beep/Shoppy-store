@@ -72,7 +72,12 @@ class V4Tests(unittest.TestCase):
         self.client.post('/admin/contact',data={'csrf':self.token(),'support_phone':'01012345678','support_email':'help@shopy.test'})
         html=self.client.get('/').data.decode('utf-8')
         self.assertIn('help@shopy.test',html)
-        self.assertIn('01012345678',html)
+        self.assertNotIn('01012345678',html)
+        self.assertIn('الدعم عبر واتساب',html)
+        self.assertIn('https://wa.me/201039561199',html)
+        with store.db() as c:
+            phone=c.execute("SELECT value FROM store_settings WHERE key='support_phone'").fetchone()[0]
+            self.assertEqual(phone,'01012345678')
         self.assertNotIn('SHOPY_WA_RECIPIENTS',html)
     def test_payment_safka_disabled_and_admin_only(self):
         self.assertEqual(self.client.get('/admin/integrations').status_code,302)
