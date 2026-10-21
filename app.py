@@ -16,6 +16,7 @@ from urllib.parse import urlencode, unquote
 from zoneinfo import ZoneInfo
 from datetime import datetime
 from promo_codes import (init_promo_schema, create_code, get_active_code, calculate_discount,
+                         quote_promo, validate_settings, KIND_LABELS,
                          consume_code, normalize_code, PromoError)
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
 from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, migrate_supplier_product_slugs, CatalogValidationError
@@ -401,7 +402,8 @@ def cart_promo_state():
  with db() as conn:
   try:
    row=get_active_code(conn,code)
-   return {'code':row['code'],'percent':row['percent'],'active':True}
+   return {'code':row['code'],'percent':row['percent'],'kind':row['kind'],
+           'kind_label':KIND_LABELS.get(row['kind'],'خصم'),'active':True}
   except PromoError as exc:return {'code':str(code)[:32],'percent':0,'active':False,'message':str(exc)}
 
 
@@ -482,20 +484,21 @@ def quote_shipping():
   if quoted is None:return jsonify(ok=False,message='الشحن غير متاح للعنوان المحدد'),404
   try:
    offer=checkout_offer(conn,rows,quoted)
-   promo_code=session.get('promo_code','')
-   promo_discount,promo_percent=calculate_discount(conn,promo_code,offer,rows,quoted)
+   promo=quote_promo(conn,session.get('promo_code',''),offer,rows,quoted)
   except (ValueError,PromoError) as exc:return jsonify(ok=False,message=str(exc)),409
  quote_data=[request.args.get(k,'').strip() for k in ('governorate','city','area')]
- quote_data += [offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo_code,promo_discount]
+ quote_data += [offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo['code'],promo['product_discount'],promo['shipping_discount']]
  ticket=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').dumps(quote_data)
  return jsonify(ok=True,products_total_piastres=offer['displayed_subtotal'],
                 merchandise_total_piastres=offer['merchandise_total'],
                 bundle_discount_piastres=offer['bundle_discount'],
-                promo_code=promo_code,promo_percent=promo_percent,promo_discount_piastres=promo_discount,
+                promo_code=promo['code'],promo_kind=promo['kind'],promo_percent=promo['percent'],
+                promo_discount_piastres=promo['product_discount'],
+                promo_shipping_discount_piastres=promo['shipping_discount'],
                 bundle_unit_count=offer['bundle_unit_count'],
-                shipping_piastres=offer['fee'],
+                shipping_piastres=offer['fee']-promo['shipping_discount'],
                 standard_shipping_piastres=(offer['fee'] if offer['bundle_offer_version']==3 else offer['standard']),
-                shipping_discount_piastres=(0 if offer['bundle_offer_version']==3 else offer['discount']),
+                shipping_discount_piastres=((0 if offer['bundle_offer_version']==3 else offer['discount'])+promo['shipping_discount']),
                 quote_token=ticket)
 
 @app.get('/api/shipping-governorates')
@@ -572,14 +575,14 @@ def checkout():
       quoted=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').loads(request.form.get('quote_token',''),max_age=1800)
      except (BadSignature,SignatureExpired):
       raise ValueError('حدّث تكلفة التوصيل قبل تأكيد الطلب؛ لم يتم إرسال أي طلب.') from None
-     promo_code=session.get('promo_code','')
-     promo_discount,promo_percent=calculate_discount(c,promo_code,offer,fresh,rate)
-     expected=[gov,city,area,offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo_code,promo_discount]
+     promo=quote_promo(c,session.get('promo_code',''),offer,fresh,rate)
+     expected=[gov,city,area,offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo['code'],promo['product_discount'],promo['shipping_discount']]
      if quoted!=expected:raise ValueError('تغيّرت السلة أو تكلفة الشحن. راجع الإجمالي وأكد الطلب مرة أخرى.')
     if not (supplier_cart and supplier_checkout_live()):
-     promo_code=session.get('promo_code','')
-     promo_discount,promo_percent=calculate_discount(c,promo_code,offer,fresh,rate)
-    total=offer['merchandise_total']-promo_discount+offer['fee'];ref='SH-'+secrets.token_hex(6).upper()
+     promo=quote_promo(c,session.get('promo_code',''),offer,fresh,rate)
+    promo_code=promo['code'];promo_discount=promo['product_discount'];promo_shipping_discount=promo['shipping_discount']
+    shipping_due=offer['fee']-promo_shipping_discount
+    total=offer['merchandise_total']-promo_discount+shipping_due;ref='SH-'+secrets.token_hex(6).upper()
     full_address=' | '.join((city,area,address))
     pricing_doc=(shipping_pricing_document_id(c,gov,city,area,rate[0],rate[1]) if supplier_cart else None)
     city_row=(c.execute('SELECT city_id FROM safka_shipping_rates WHERE governorate=? AND city=? AND area=?',
@@ -589,10 +592,10 @@ def checkout():
      raise ValueError('بيانات التوصيل غير مكتملة حاليًا. لم يتم إرسال الطلب.')
     cur=c.execute('''INSERT INTO orders(reference,user_id,customer,phone,governorate,address,shipping_fee,total,
        checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id,safka_city_id,shipping_standard_fee,shipping_discount,retained_profit_floor,bundle_discount,bundle_offer_version,bundle_unit_count,
-       promo_code,promo_percent,promo_discount)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,offer['fee'],total,key,
-       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id,offer['standard'],offer['discount'],offer['floor'],offer['bundle_discount'],offer['bundle_offer_version'],offer['bundle_unit_count'],
-       promo_code,promo_percent,promo_discount))
+       promo_code,promo_percent,promo_discount,promo_shipping_discount,promo_kind,promo_value,promo_min_items,promo_max_items)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,shipping_due,total,key,
+       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id,offer['standard'],offer['discount']+promo_shipping_discount,offer['floor'],offer['bundle_discount'],offer['bundle_offer_version'],offer['bundle_unit_count'],
+       promo_code,promo['percent'],promo_discount,promo_shipping_discount,promo['kind'],promo['value'],promo['min_items'],promo['max_items']))
     if cur.rowcount==0:
      existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
      return redirect('/order/success/'+existing['reference'])
@@ -612,7 +615,7 @@ def checkout():
      'order_ref':ref,'customer_name':name,'customer_phone':phone,
      'governorate':gov,'city':city,'area':area,
      'products_total_piasters':total-offer['fee'],
-     'shipping_piasters':offer['fee'],'total_piasters':total,
+     'shipping_piasters':shipping_due,'total_piasters':total,
      'items':[{'name':p['title'],'qty':q,'options':choices} for p,q,choices in fresh],
      'payment_method':'الدفع عند الاستلام',
     },recipients=recipients,enabled=os.getenv('SHOPY_WA_ENABLED')=='1')
