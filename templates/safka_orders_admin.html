@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}متابعة صفقة — Shoppy Store{% endblock %}
+{% block content %}
+<div class="page-title"><span class="eyebrow">لوحة التحكم / صفقة</span><h1>متابعة طلبات صفقة</h1><p>آخر 100 طلب، بحالة التسجيل في المتجر وحالة الإرسال للمورد وآخر حالة مؤكدة واردة منه.</p></div>
+<section class="admin-section panel">
+ <p role="status"><strong>طلبات تحتاج فحصًا يدويًا: {{attention}}</strong> من آخر 100 طلب. الحالات غير المؤكدة مش معناها إن صفقة رفضت الطلب، وممنوع إعادة إرسالها تلقائيًا لتجنب التكرار.</p>
+ <div class="table-wrap"><table class="table"><thead><tr><th>رقم الطلب</th><th>تاريخه</th><th>حالة المتجر</th><th>حالة الربط</th><th>آخر تحديث من صفقة</th><th>محاولات الإرسال</th></tr></thead><tbody>
+ {% for row in orders %}<tr><td dir="ltr">{{row.reference}}</td><td>{{row.created_at[:16]}}</td><td>{{row.local_status}}</td><td>{{row.push_status}}</td><td>{{supplier_labels.get(row.supplier_status,row.supplier_status) if row.supplier_status else 'لم يصل تحديث من صفقة'}}</td><td>{{row.attempt_count or 0}}</td></tr>{% else %}<tr><td colspan="6">لا توجد طلبات</td></tr>{% endfor %}</tbody></table></div>
+ <p class="fine-print">لو حالة الربط unknown أو preflight_failed، راجع طلب صفقة الخارجي وسجلات الربط قبل أي إعادة محاولة؛ القبول الفعلي لازم يكون مؤكَّد، مش مُفترض.</p>
+ <a class="btn btn-outline" href="/admin">الرجوع للوحة الإدارة</a>
+</section>
+{% endblock %}
