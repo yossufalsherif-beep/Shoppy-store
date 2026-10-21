@@ -531,6 +531,12 @@ def safka_shipping_cities():
  return jsonify(cities=[r['city'] for r in rows][:1000])
 
 
+def remember_order_ref(ref):
+ # Reassign rather than mutating a nested session list, so Flask saves it.
+ refs=[item for item in session.get('my_order_refs',[]) if isinstance(item,str) and item!=ref]
+ session['my_order_refs']=(refs+[ref])[-10:]
+
+
 @app.route('/checkout',methods=['GET','POST'])
 def checkout():
  # Guest checkout: identity is optional; contact/delivery details are required.
@@ -567,8 +573,7 @@ def checkout():
     c.execute('BEGIN IMMEDIATE')
     existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
     if existing:
-     refs=session.setdefault('my_order_refs',[])
-     if existing['reference'] not in refs:refs.append(existing['reference'])
+     remember_order_ref(existing['reference'])
      return redirect('/order/success/'+existing['reference'])
     if mixed_cart:raise ValueError('المنتجات دي تحتاج طلبات منفصلة؛ راجع السلة')
     rate=(quote_safka_shipping if supplier_cart else shipping_quote)(c,gov,city,area)
@@ -613,8 +618,7 @@ def checkout():
        promo_code,promo['percent'],promo_discount,promo_shipping_discount,promo['kind'],promo['value'],promo['min_items'],promo['max_items']))
     if cur.rowcount==0:
      existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
-     refs=session.setdefault('my_order_refs',[])
-     if existing['reference'] not in refs:refs.append(existing['reference'])
+     remember_order_ref(existing['reference'])
      return redirect('/order/success/'+existing['reference'])
     if promo_code:consume_code(c,promo_code)
     for p,q,choices in fresh:
@@ -652,7 +656,7 @@ def checkout():
    flash(str(exc));return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
         checkout_ready=(supplier_checkout_live() or not STAGING_MODE),promo_state=cart_promo_state())
   session['cart']={};session.pop('checkout_key',None);session.pop('promo_code',None)
-  session.setdefault('my_order_refs',[]).append(ref)
+  remember_order_ref(ref)
   return redirect('/order/success/'+ref)
  return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
                         checkout_ready=(supplier_checkout_live() or not STAGING_MODE),promo_state=cart_promo_state())
