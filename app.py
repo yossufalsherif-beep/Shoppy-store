@@ -1031,6 +1031,40 @@ def admin_edit_promo(code):
   return promo_admin_response(str(exc) if isinstance(exc,PromoError) else 'راجع القيم المدخلة.',error=True)
 
 
+@app.get('/admin/profit')
+@admin_only
+def admin_profit_report():
+ # Recognition: a supplier-collected order is not the same as an order created
+ # or marked delivered. All numbers below are in piastres, not pounds.
+ with db() as c:
+  r=c.execute("""WITH per_order AS (
+    SELECT o.id,o.status,o.total,o.shipping_supplier_cost,
+           COALESCE(s.supplier_status,'') AS supplier_status,
+           COUNT(oi.id) AS line_count,
+           COALESCE(SUM(CASE WHEN oi.unit_cost IS NULL THEN 1 ELSE 0 END),0) AS missing_items,
+           COALESCE(SUM(COALESCE(oi.unit_cost,0)*oi.quantity),0) AS item_cost
+    FROM orders o
+    LEFT JOIN order_items oi ON oi.order_id=o.id
+    LEFT JOIN safka_order_outbox s ON s.order_id=o.id
+    GROUP BY o.id,o.status,o.total,o.shipping_supplier_cost,s.supplier_status
+  )
+  SELECT
+    COUNT(*) AS orders_total,
+    COALESCE(SUM(CASE WHEN status='cancelled' OR supplier_status IN ('declined1','declined2','returned1','returned2','returned_exchange','skip') THEN 1 ELSE 0 END),0) AS cancelled_count,
+    COALESCE(SUM(CASE WHEN supplier_status='collected' AND status!='cancelled' THEN total ELSE 0 END),0) AS collected_value,
+    COALESCE(SUM(CASE WHEN supplier_status='collected' AND status!='cancelled' AND shipping_supplier_cost IS NOT NULL AND missing_items=0 AND line_count>0 THEN total-item_cost-shipping_supplier_cost ELSE 0 END),0) AS collected_margin_known,
+    COALESCE(SUM(CASE WHEN supplier_status='collected' AND status!='cancelled' AND (shipping_supplier_cost IS NULL OR missing_items>0 OR line_count=0) THEN 1 ELSE 0 END),0) AS collected_missing_costs,
+    COALESCE(SUM(CASE WHEN supplier_status!='collected' AND status!='cancelled' AND supplier_status NOT IN ('declined1','declined2','returned1','returned2','returned_exchange','skip') AND shipping_supplier_cost IS NOT NULL AND missing_items=0 AND line_count>0 THEN total-item_cost-shipping_supplier_cost ELSE 0 END),0) AS pending_margin_known,
+    COALESCE(SUM(CASE WHEN supplier_status!='collected' AND status!='cancelled' AND supplier_status NOT IN ('declined1','declined2','returned1','returned2','returned_exchange','skip') AND (shipping_supplier_cost IS NULL OR missing_items>0 OR line_count=0) THEN 1 ELSE 0 END),0) AS pending_missing_costs
+  FROM per_order""").fetchone()
+  stages=c.execute("""SELECT COALESCE(NULLIF(s.supplier_status,''),'لم يصل تحديث المورد') AS supplier_status,
+    COUNT(*) AS orders,COALESCE(SUM(o.total),0) AS value
+    FROM orders o LEFT JOIN safka_order_outbox s ON s.order_id=o.id
+    GROUP BY COALESCE(NULLIF(s.supplier_status,''),'لم يصل تحديث المورد')
+    ORDER BY orders DESC""").fetchall()
+ return render_template('profit_admin.html',report=r,stages=stages,supplier_labels=SUPPLIER_STATUS_LABELS)
+
+
 @app.route('/admin')
 @admin_only
 def admin():
