@@ -211,3 +211,29 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 [data-promo-feedback].is-error{color:#a12626;font-weight:600}
 [data-promo-admin-feedback]{color:#117452;font-weight:600}
 [data-select-free-shipping]{margin-block:12px;border-color:#087887;white-space:normal}
+
+/* Phase 1: accessible opt-in notice, mobile checkout and core Web Vitals. */
+.analytics-choice{position:fixed;z-index:40;inset-inline:16px;bottom:14px;margin-inline:auto;max-width:740px;padding:16px 18px;border:1px solid var(--stroke);border-radius:16px;background:#fff;box-shadow:0 16px 46px #062c3133;display:flex;align-items:center;gap:20px}
+.analytics-choice p{margin:0;font-size:13px;line-height:1.65;flex:1;color:#2d3d40}
+.analytics-choice a{color:#087887;text-decoration:underline}
+.analytics-choice>div{display:flex;gap:8px;flex-wrap:wrap}
+.analytics-choice .btn{min-height:44px;padding:8px 12px}
+.account-phone{margin-bottom:20px}
+.account-phone form{max-width:420px}
+@media(max-width:740px){
+ .analytics-choice{inset-inline:12px;bottom:10px;padding:12px;display:block}
+ .analytics-choice>div{margin-top:10px;display:flex;flex-direction:row}
+ .analytics-choice .btn{flex:1 1 115px}
+ .product-info,.gallery-area,.checkout-form,.order-summary{min-width:0}
+ .checkout-layout{gap:16px}
+ .checkout-form input,.checkout-form select,.checkout-form textarea,.auth-form input{font-size:16px;max-width:100%}
+ .checkout-form button[type="submit"]{min-height:52px}
+ .product-cover img{object-fit:contain}
+ .product-card .btn{min-height:44px}
+ .section-heading,.admin-head{min-width:0}
+ .table-scroll,.table-wrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+}
+@media(prefers-reduced-motion:reduce){
+ html{scroll-behavior:auto}
+ .btn,.product-card{transition:none}
+}
