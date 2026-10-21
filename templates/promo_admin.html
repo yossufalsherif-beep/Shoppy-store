@@ -1,44 +1,64 @@
 {% extends 'base.html' %}
 {% block title %}إدارة البرومو كود — Shoppy Store{% endblock %}
 {% block content %}
-<div class="page-title"><span class="eyebrow">لوحة التحكم</span><h1>إدارة أكواد الخصم</h1><p>أنشئ خصومات بالنسبة المئوية مع حد استخدامات ومدة صلاحية. كل المواعيد بتوقيت القاهرة.</p><a href="/admin" class="text-link">← الرجوع للوحة التحكم</a></div>
+<div class="page-title"><span class="eyebrow">لوحة التحكم</span><h1>إدارة أكواد الخصم</h1>
+<p>اعمل نسبة خصم أو مبلغ ثابت على المنتجات أو الشحن، وحدد القطع المطلوبة وعدد الاستخدامات ووقت الانتهاء بتوقيت القاهرة.</p>
+<a href="/admin" class="text-link">← الرجوع للوحة التحكم</a></div>
 <div class="checkout-layout">
 <section class="panel">
- <h2>إنشاء برومو كود جديد</h2>
- <form action="/admin/promo-codes/create" method="post" class="auth-form">
+ <h2>إنشاء برومو كود</h2>
+ <form action="/admin/promo-codes/create" method="post" class="auth-form promo-admin-form">
   <input type="hidden" name="csrf" value="{{csrf}}">
-  <label>كود الخصم بالإنجليزية <input name="code" placeholder="WELCOME10" minlength="4" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_-]{2,30}[A-Za-z0-9]" required autocapitalize="characters"></label>
-  <label>نسبة الخصم % <input type="number" name="percent" min="1" max="100" value="10" required></label>
-  <label>أقصى عدد استخدامات <input type="number" name="max_uses" min="1" max="10000000" value="100"></label>
-  <label class="checkbox-label"><input name="unlimited" value="1" type="checkbox"> بدون حد لعدد الاستخدامات</label>
-  <label>بداية الصلاحية <input type="datetime-local" name="starts_at" required></label>
-  <label>نهاية الصلاحية <input type="datetime-local" name="expires_at" required></label>
-  <p class="fine-print">الخصم بيتحسب على المنتجات بعد عرض القطع الإضافية، مش على الشحن. المتجر هيمنع تلقائيًا أي خصم يخلي الطلب أقل من تكلفة المورد والشحن. الاستخدام بيتحسب عند إنشاء الطلب، ولا يُسترد تلقائيًا عند الإلغاء.</p>
-  <button class="btn btn-dark">إنشاء كود الخصم</button>
+  <label>كود الخصم بالإنجليزية <input name="code" placeholder="WELCOME10" minlength="4" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_-]{2,30}[A-Za-z0-9]" required></label>
+  <label>نوع الخصم
+   <select name="kind" class="promo-kind">
+    {% for key,label in kind_labels.items() %}<option value="{{key}}">{{label}}</option>{% endfor %}
+   </select>
+  </label>
+  <label data-promo-field="percent">نسبة الخصم % <input type="number" name="percent" min="1" max="100" value="10"></label>
+  <label data-promo-field="amount">قيمة الخصم بالجنيه <input type="number" name="amount_egp" min="0.01" step="0.01" placeholder="مثلًا 50"></label>
+  <label>أقل عدد قطع في الطلب لتفعيل الكود <input name="min_items" type="number" min="1" max="1000" value="1" required></label>
+  <label data-promo-field="pieces">أقصى عدد قطع يحصل على خصم للقطعة <input name="max_discounted_items" type="number" min="1" max="1000" placeholder="سيبه فاضي لكل القطع"></label>
+  <label>أقصى عدد مرات استخدام الكود <input type="number" name="max_uses" min="1" max="10000000" value="100"></label>
+  <label class="checkbox-label"><input name="unlimited" value="1" type="checkbox"> عدد استخدامات غير محدود</label>
+  <label>بداية الصلاحية — بتوقيت القاهرة <input type="datetime-local" name="starts_at" required></label>
+  <label>نهاية الصلاحية — بتوقيت القاهرة <input type="datetime-local" name="expires_at" required></label>
+  <p class="fine-print">خصم المنتجات يُحسب بعد عرض القطع الإضافية. خصم الشحن لا يتجاوز قيمة الشحن الحالية؛ وعند وجود شحن مجاني مسبقًا لن يُضاف خصم شحن آخر. يحظر النظام الطلبات التي لا تغطي تكلفة المورد والشحن.</p>
+  <button class="btn btn-dark">إنشاء الكود</button>
  </form>
 </section>
 <aside class="panel">
- <h2>القواعد المهمة</h2>
- <p>تقدر توقف أي كود فورًا، أو تعدل مدته وعدد استخداماته ونسبة الخصم.</p>
- <p>انتهاء الصلاحية تلقائي؛ مش محتاج تدخل تلغي الكود بنفسك.</p>
- <p>لا يتم إرسال أي بيانات خصم للمورد إلا لما يطابق إجمالي العميل المبلغ المحسوب على السيرفر.</p>
- <p>الكود الواحد بيتحسب مرة واحدة لكل طلب، ومفيش خصم على الشحن نفسه.</p>
+ <h2>أمثلة</h2>
+ <p><strong>خصم 10%:</strong> نسبة على قيمة المنتجات بعد عرض المتجر.</p>
+ <p><strong>خصم 50 جنيه:</strong> خصم ثابت مرة واحدة من إجمالي المنتجات.</p>
+ <p><strong>خصم 20 جنيه × 3 قطع:</strong> اختر «مبلغ لكل قطعة»، واكتب 20 جنيه، والحد الأدنى 3، والحد الأقصى للقطع المستفيدة 3.</p>
+ <p><strong>خصم 30 جنيه من الشحن:</strong> لا يخصم أكثر من تكلفة شحن الطلب.</p>
+ <p><strong>شحن مجاني:</strong> يلغي تكلفة الشحن المطبقة حاليًا فقط.</p>
+ <p class="fine-print">عدد استخدامات الكود يُحسب عند تسجيل الطلب، ولا يعود تلقائيًا بعد إلغائه.</p>
 </aside>
 </div>
 <section class="admin-section">
  <div class="section-heading"><div><h2>الأكواد المسجلة</h2><p>الأحدث أولًا</p></div><strong class="count">{{codes|length}}</strong></div>
- <div class="panel table-panel"><div class="table-scroll"><table><thead><tr><th>الكود</th><th>الخصم</th><th>الاستخدامات</th><th>الصلاحية</th><th>الحالة</th><th>التحكم</th></tr></thead><tbody>
+ <div class="panel table-panel"><div class="table-scroll"><table><thead><tr>
+ <th>الكود ونوعه</th><th>الخصم</th><th>القطع</th><th>الاستخدامات</th><th>الصلاحية</th><th>الحالة</th><th>التحكم</th>
+ </tr></thead><tbody>
  {% for p in codes %}
  <tr>
-  <td><strong dir="ltr">{{p.code}}</strong></td>
-  <td>{{p.percent}}%</td>
+  <td><strong dir="ltr">{{p.code}}</strong><small>{{kind_labels.get(p.kind,'خصم')}}</small></td>
+  <td>{% if p.kind=='percent' %}{{p.percent}}%{% elif p.kind=='free_shipping' %}الشحن كاملًا{% else %}{{money(p.amount_piastres)}} ج.م{% endif %}</td>
+  <td><small>بدايةً من {{p.min_items}} قطع</small>{% if p.kind=='fixed_item' %}<small>الخصم لأول {{p.max_discounted_items if p.max_discounted_items is not none else 'كل'}} قطع</small>{% endif %}</td>
   <td>{{p.used_count}} / {{p.max_uses if p.max_uses is not none else 'غير محدود'}}</td>
   <td><small>من {{p.starts_at|egypt_promo_date|replace('T',' ')}}</small><small>حتى {{p.expires_at|egypt_promo_date|replace('T',' ')}}</small></td>
   <td>{% if not p.active %}موقوف{% elif p.expires_at<=now_epoch %}منتهي{% elif p.starts_at>now_epoch %}لم يبدأ{% elif p.max_uses is not none and p.used_count>=p.max_uses %}نفدت الاستخدامات{% else %}فعّال{% endif %}</td>
   <td><form method="post" action="/admin/promo-codes/{{p.code}}/toggle"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline" type="submit">{{'تفعيل' if not p.active else 'إيقاف'}}</button></form>
-   <details><summary>تعديل</summary><form method="post" action="/admin/promo-codes/{{p.code}}/edit" class="auth-form"><input type="hidden" name="csrf" value="{{csrf}}">
-    <label>النسبة <input type="number" name="percent" min="1" max="100" value="{{p.percent}}" required></label>
-    <label>عدد الاستخدامات <input type="number" name="max_uses" min="1" value="{{p.max_uses if p.max_uses is not none else ''}}"></label>
+   <details><summary>تعديل</summary><form method="post" class="auth-form promo-admin-form" action="/admin/promo-codes/{{p.code}}/edit">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <label>نوع الخصم <select name="kind" class="promo-kind">{% for key,label in kind_labels.items() %}<option value="{{key}}" {% if p.kind==key %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label>
+    <label data-promo-field="percent">النسبة % <input type="number" name="percent" min="1" max="100" value="{{p.percent if p.percent else 10}}"></label>
+    <label data-promo-field="amount">المبلغ بالجنيه <input type="number" name="amount_egp" step="0.01" min="0.01" value="{{money(p.amount_piastres) if p.amount_piastres else ''}}"></label>
+    <label>أقل عدد قطع <input name="min_items" type="number" min="1" value="{{p.min_items}}" required></label>
+    <label data-promo-field="pieces">القطع المستفيدة (اختياري) <input name="max_discounted_items" type="number" min="1" value="{{p.max_discounted_items if p.max_discounted_items is not none else ''}}"></label>
+    <label>عدد الاستخدامات <input name="max_uses" type="number" min="1" value="{{p.max_uses if p.max_uses is not none else ''}}"></label>
     <label><input type="checkbox" name="unlimited" value="1" {% if p.max_uses is none %}checked{% endif %}> غير محدود</label>
     <label>البداية <input name="starts_at" type="datetime-local" value="{{p.starts_at|egypt_promo_date}}" required></label>
     <label>النهاية <input name="expires_at" type="datetime-local" value="{{p.expires_at|egypt_promo_date}}" required></label>
@@ -46,7 +66,21 @@
    </form></details>
   </td>
  </tr>
- {% else %}<tr><td colspan="6">مفيش برومو كود اتعمل لسه.</td></tr>{% endfor %}
+ {% else %}<tr><td colspan="7">لسه مفيش أكواد اتعملت.</td></tr>{% endfor %}
  </tbody></table></div></div>
 </section>
+<script>
+document.querySelectorAll('.promo-admin-form').forEach(form=>{
+ const type=form.querySelector('.promo-kind');
+ const refresh=()=>{
+  const kind=type.value;
+  const showAmount=['fixed_order','fixed_item','shipping_amount'].includes(kind);
+  for(const field of form.querySelectorAll('[data-promo-field]')){
+   const name=field.dataset.promoField;
+   field.hidden=(name==='percent' ? kind!=='percent' : name==='amount' ? !showAmount : kind!=='fixed_item');
+  }
+ };
+ type.addEventListener('change',refresh);refresh();
+});
+</script>
 {% endblock %}
