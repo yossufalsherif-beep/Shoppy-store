@@ -54,8 +54,15 @@ CREATE TABLE IF NOT EXISTS shipping(id INTEGER PRIMARY KEY,governorate TEXT UNIQ
 CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY,reference TEXT UNIQUE NOT NULL,user_id INTEGER REFERENCES users(id),customer TEXT NOT NULL,phone TEXT NOT NULL,governorate TEXT NOT NULL,address TEXT NOT NULL,shipping_fee INTEGER NOT NULL,total INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'new',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY,order_id INTEGER NOT NULL REFERENCES orders(id),product_id INTEGER REFERENCES products(id),title TEXT NOT NULL,unit_price INTEGER NOT NULL,quantity INTEGER NOT NULL CHECK(quantity>0));''')
   c.execute('''CREATE TABLE IF NOT EXISTS product_media (id INTEGER PRIMARY KEY,product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,kind TEXT NOT NULL CHECK(kind IN ('image','video')),path TEXT NOT NULL,position INTEGER NOT NULL DEFAULT 0)''')
+  user_columns={r['name'] for r in c.execute('PRAGMA table_info(users)')}
+  if 'phone' not in user_columns:c.execute("ALTER TABLE users ADD COLUMN phone TEXT NOT NULL DEFAULT ''")
   init_notification_store(c)
   init_social_schema(c)
+  c.execute("""CREATE TABLE IF NOT EXISTS analytics_counters(
+       day TEXT NOT NULL,stage TEXT NOT NULL,visits INTEGER NOT NULL DEFAULT 0,
+       PRIMARY KEY(day,stage))""")
+  if os.environ.get('DATABASE_URL'):
+   c.execute('ALTER TABLE analytics_counters ENABLE ROW LEVEL SECURITY')
   init_pricing_schema(c)
   init_promo_schema(c)
   # Forward-only, additive SQLite migration, preserving all V2 rows.
@@ -141,7 +148,7 @@ def current_user():
  if hasattr(g,'store_user'):return g.store_user
  uid=session.get('uid')
  if not uid:g.store_user=None;return None
- with db() as c:g.store_user=c.execute('SELECT id,email,role FROM users WHERE id=?',(uid,)).fetchone()
+ with db() as c:g.store_user=c.execute('SELECT id,email,role,phone FROM users WHERE id=?',(uid,)).fetchone()
  return g.store_user
 @app.before_request
 def staging_gate():
@@ -375,6 +382,7 @@ def add_cart(pid):
  if p['source']=='safka' and not supplier_stock_ready(p,combined):
   return action_response('الكمية المطلوبة غير متوفرة حاليًا؛ اختار كمية أقل',False,'/products/'+p['slug'],409)
  cart[key]=new_quantity;session['cart']=cart
+ track_funnel('cart_add')
  back=safe_back_url() if request.form.get('return_to') else '/cart'
  return action_response('تمت إضافة المنتج للسلة',redirect_to=back,view_url='/cart')
 
@@ -503,6 +511,7 @@ def quote_shipping():
  quote_data=[request.args.get(k,'').strip() for k in ('governorate','city','area')]
  quote_data += [offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo['code'],promo['product_discount'],promo['shipping_discount']]
  ticket=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').dumps(quote_data)
+ track_funnel('shipping_quote')
  return jsonify(ok=True,products_total_piastres=offer['displayed_subtotal'],
                 merchandise_total_piastres=offer['merchandise_total'],
                 bundle_discount_piastres=offer['bundle_discount'],
@@ -657,6 +666,7 @@ def checkout():
         checkout_ready=(supplier_checkout_live() or not STAGING_MODE),promo_state=cart_promo_state())
   session['cart']={};session.pop('checkout_key',None);session.pop('promo_code',None)
   remember_order_ref(ref)
+  track_funnel('order_created')
   return redirect('/order/success/'+ref)
  return render_template('checkout.html',rows=rows,rates=rates,supplier_cart=supplier_cart,
                         checkout_ready=(supplier_checkout_live() or not STAGING_MODE),promo_state=cart_promo_state())
@@ -709,15 +719,46 @@ def complete_customer_auth(uid,role):
  return redirect('/account')
 
 
+# Anonymous, consent-only daily stage totals. No visitor, order, address or IP identifiers.
+FUNNEL_STAGES=('home','product_view','cart_add','cart_view','checkout_view','shipping_quote','order_created')
+def track_funnel(stage):
+ if stage not in FUNNEL_STAGES or session.get('analytics_consent')!='yes':return False
+ seen=session.get('analytics_seen',[])
+ if stage in seen:return False
+ today=datetime.now(ZoneInfo('Africa/Cairo')).strftime('%Y-%m-%d')
+ with db() as conn:
+  conn.execute("""INSERT INTO analytics_counters(day,stage,visits) VALUES(?,?,1)
+    ON CONFLICT(day,stage) DO UPDATE SET visits=analytics_counters.visits+1""",(today,stage))
+ session['analytics_seen']=(seen+[stage])[-len(FUNNEL_STAGES):]
+ return True
+
+@app.post('/analytics/consent')
+def update_analytics_consent():
+ choice=request.form.get('choice','')
+ if choice not in ('yes','no'):abort(400)
+ session['analytics_consent']=choice
+ session.pop('analytics_seen',None)
+ return jsonify(ok=True,enabled=choice=='yes')
+
+@app.post('/analytics/event')
+def analytics_event():
+ stage=request.form.get('stage','')
+ if stage not in ('home','product_view','cart_view','checkout_view'):abort(400)
+ if session.get('analytics_consent')!='yes':return jsonify(ok=False),403
+ track_funnel(stage)
+ return jsonify(ok=True)
+
 @app.route('/register',methods=['GET','POST'])
 def register():
  if request.method=='POST':
   email=request.form.get('email','').strip().lower();pw=request.form.get('password','')
-  if not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',email) or len(pw)<10:flash('بريد صحيح وكلمة مرور 10 أحرف على الأقل')
+  phone=request.form.get('phone','').strip()
+  if phone and not re.fullmatch(r'01[0125]\d{8}',phone):flash('اكتب رقم موبايل مصري صحيح')
+  elif not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',email) or len(pw)<10:flash('بريد صحيح وكلمة مرور 10 أحرف على الأقل')
   else:
    try:
     with db() as c:
-     cur=c.execute('INSERT INTO users(email,password,role) VALUES(?,?,?)',(email,generate_password_hash(pw),'customer'))
+     cur=c.execute('INSERT INTO users(email,password,role,phone) VALUES(?,?,?,?)',(email,generate_password_hash(pw),'customer',phone))
      new_user_id=cur.lastrowid
     return complete_customer_auth(new_user_id,'customer')
    except Exception as exc:
@@ -830,6 +871,19 @@ def account():
   details=grouped(c,'order_items','order_id',ids,order='id')
   supplier_states={oid:rows[0] for oid,rows in grouped(c,'safka_order_outbox','order_id',ids).items() if rows}
  return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states,pager=pager)
+
+@app.post('/account/phone')
+def customer_phone_update():
+ u=current_user()
+ if not u:return redirect('/login')
+ if u['role']!='customer':abort(403)
+ phone=request.form.get('phone','').strip()
+ if not re.fullmatch(r'01[0125]\d{8}',phone):
+  flash('اكتب رقم موبايل مصري صحيح.')
+  return redirect('/account')
+ with db() as conn:conn.execute('UPDATE users SET phone=? WHERE id=? AND role=?',(phone,u['id'],'customer'))
+ flash('تم حفظ رقم الموبايل. راجعه تاني وقت تأكيد الطلب.')
+ return redirect('/account')
 
 @app.post('/account/delete')
 def delete_customer_account():
@@ -1044,6 +1098,15 @@ def admin_safka_orders_board():
  attention=sum(1 for r in rows if r['push_status'] in ('unknown','preflight_failed','failed') and r['supplier_status'] not in ('collected','available'))
  return render_template('safka_orders_admin.html',orders=rows,attention=attention,supplier_labels=SUPPLIER_STATUS_LABELS)
 
+
+@app.get('/admin/funnel')
+@admin_only
+def admin_funnel_report():
+ today=datetime.now(ZoneInfo('Africa/Cairo')).strftime('%Y-%m-%d')
+ with db() as conn:
+  rows=conn.execute("SELECT stage,COALESCE(SUM(visits),0) AS visits FROM analytics_counters WHERE day=? GROUP BY stage",(today,)).fetchall()
+ totals={r['stage']:r['visits'] for r in rows}
+ return render_template('funnel_admin.html',stages=[(s,totals.get(s,0)) for s in FUNNEL_STAGES],day=today)
 
 @app.get('/admin/profit')
 @admin_only
