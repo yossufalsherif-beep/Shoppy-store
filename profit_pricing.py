@@ -133,18 +133,65 @@ def checkout_offer(conn, rows, rate):
         'bundle_offer_version': BUNDLE_OFFER_VERSION, 'bundle_unit_count': units,
     }
 
-def validate_promo_snapshot(raw,merchandise,costs,supplier_shipping,buyer_shipping,floor):
-    """Verify immutable voucher arithmetic and merchant margin for saved orders."""
+def validate_promo_snapshot(raw,merchandise,costs,supplier_shipping,buyer_shipping,floor,quantity=None):
+    """Reconcile saved voucher terms, totals, limits and merchant contribution.
+
+    Snapshot terms are saved with the order so later admin edits never rewrite
+    historical transactions. No live promo table reads are made here.
+    """
     code=raw.get('promo_code','') or ''
     percent=raw.get('promo_percent',0)
     discount=raw.get('promo_discount',0)
-    if not isinstance(code,str) or not isinstance(percent,int) or not isinstance(discount,int):
+    shipping=raw.get('promo_shipping_discount',0)
+    kind=raw.get('promo_kind','') or ('percent' if code else '')
+    value=raw.get('promo_value',0)
+    minimum=raw.get('promo_min_items',0) or 1
+    maximum=raw.get('promo_max_items',0)
+    numbers=(percent,discount,shipping,value,minimum,maximum)
+    if not isinstance(code,str) or not all(type(i) is int for i in numbers):
         raise ValueError('Invalid promo order snapshot')
-    if not code and percent==0 and discount==0:return
-    if not code or not 1<=percent<=100 or discount!=merchandise*percent//100 or discount<=0:
-        raise ValueError('Promotional order discount was changed')
+    if any(v<0 for v in (percent,discount,shipping,value,maximum)):
+        raise ValueError('Negative promo values are forbidden')
+    if not code:
+        if kind or percent or discount or shipping or value or maximum:
+            raise ValueError('Promo discount has no code')
+        return
+    if not isinstance(quantity,int) or quantity<minimum or minimum<1:
+        raise ValueError('Promo minimum quantity not satisfied')
+    baseline_shipping=buyer_shipping+shipping
+    if baseline_shipping<0 or shipping>baseline_shipping:
+        raise ValueError('Promo shipping snapshot is invalid')
+    if kind=='percent':
+        value=value or percent  # backward-compatibility for old saved percent-only orders
+        if not 1<=value<=100 or percent!=value or maximum:
+            raise ValueError('Invalid percentage promo terms')
+        expected_product=merchandise*value//100
+        expected_shipping=0
+    elif kind=='fixed_order':
+        if percent or value<=0 or maximum:raise ValueError('Invalid fixed promo terms')
+        expected_product=value
+        expected_shipping=0
+    elif kind=='fixed_item':
+        if percent or value<=0 or maximum<0:raise ValueError('Invalid per-unit promo terms')
+        expected_product=value*min(quantity,maximum or quantity)
+        expected_shipping=0
+    elif kind=='shipping_amount':
+        if percent or value<=0 or maximum:raise ValueError('Invalid delivery promo terms')
+        expected_product=0
+        expected_shipping=min(value,baseline_shipping)
+    elif kind=='free_shipping':
+        if percent or value or maximum:raise ValueError('Invalid free delivery promo terms')
+        expected_product=0
+        expected_shipping=baseline_shipping
+    else:
+        raise ValueError('Unknown promo kind')
+    if expected_product<=0 and expected_shipping<=0:
+        raise ValueError('Coupon has no eligible discount')
+    if (discount!=expected_product or shipping!=expected_shipping
+        or discount>merchandise):
+        raise ValueError('Saved coupon discount was altered')
     if merchandise-discount+buyer_shipping-costs-supplier_shipping < max(100,floor):
-        raise ValueError('Promotional order would sell below supplier costs')
+        raise ValueError('Coupon would undercut verified supplier costs')
 
 
 def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
@@ -156,13 +203,15 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
         bundle_discount=raw['bundle_discount']
         units=raw['bundle_unit_count']
         floor=raw['retained_profit_floor']
-        if not all(isinstance(v,int) and not isinstance(v,bool) for v in (standard,supplier,buyer,discount,bundle_discount,units,floor)):
+        promo_ship=raw.get('promo_shipping_discount',0)
+        if not all(type(v) is int for v in (standard,supplier,buyer,discount,bundle_discount,units,floor,promo_ship)) or promo_ship<0:
             raise ValueError('Invalid promotional order snapshot')
         if units < 1 or quantity != units or standard != supplier+1000 or not 0 <= buyer <= standard or discount != standard-buyer:
             raise ValueError('Promotional shipping snapshots do not reconcile')
-        if bundle_discount != BUNDLE_PREMIUM_PIASTRES*(units-1) or (units>=2 and buyer!=0) or (units==1 and buyer<100):
+        baseline_buyer=buyer+promo_ship
+        if bundle_discount != BUNDLE_PREMIUM_PIASTRES*(units-1) or (units>=2 and (buyer!=0 or promo_ship!=0)) or (units==1 and baseline_buyer<100):
             raise ValueError('Promotional discount does not match purchased quantity')
-        if raw['bundle_offer_version'] == 3 and units == 1 and buyer != SINGLE_ITEM_SHIPPING_PIASTRES:
+        if raw['bundle_offer_version'] == 3 and units == 1 and baseline_buyer != SINGLE_ITEM_SHIPPING_PIASTRES:
             raise ValueError('Single-item shipping is not the fixed EGP 50 tariff')
         merchandise=subtotal-bundle_discount
         expected_floor = (retained_profit_floor(merchandise)
@@ -170,7 +219,7 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
                           else MIN_BUNDLE_CONTRIBUTION_PIASTRES)
         if merchandise < 0 or floor != expected_floor or merchandise+buyer-costs-supplier < floor:
             raise ValueError('Promotional order violates retained merchant contribution')
-        validate_promo_snapshot(raw,merchandise,costs,supplier,buyer,floor)
+        validate_promo_snapshot(raw,merchandise,costs,supplier,buyer,floor,units)
         return
     if raw.get('bundle_offer_version', 0) not in (0,None):
         raise ValueError('Unknown promotion version')
@@ -184,6 +233,8 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
         raise ValueError('Invalid delivery snapshot')
     if standard!=supplier+1000 or not 0<=discount<=standard or buyer!=standard-discount:
         raise ValueError('Delivery discount does not match the saved rate')
-    if discount and (floor!=retained_profit_floor(subtotal) or subtotal+buyer-costs-supplier<floor):
+    legacy_discount=discount-raw.get('promo_shipping_discount',0)
+    if legacy_discount<0:raise ValueError('Invalid coupon shipping discount')
+    if legacy_discount and (floor!=retained_profit_floor(subtotal) or subtotal+buyer-costs-supplier<floor):
         raise ValueError('Delivery discount violates the retained margin')
-    validate_promo_snapshot(raw,subtotal,costs,supplier,buyer,floor)
+    validate_promo_snapshot(raw,subtotal,costs,supplier,buyer,floor,quantity)

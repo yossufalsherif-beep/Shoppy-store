@@ -56,6 +56,7 @@ def prepare_dry_run(conn, order_id):
         'promo_code':raw.get('promo_code',''),
         'promo_percent':raw.get('promo_percent',0),
         'promo_discount_piastres':raw.get('promo_discount',0),
+        'promo_shipping_discount_piastres':raw.get('promo_shipping_discount',0),
         'customer_shipping_piastres': buyer_ship,
         'total_to_collect_piastres': raw['customer_total_piastres'],
         'estimated_supplier_products_piastres': supplier_items_total,

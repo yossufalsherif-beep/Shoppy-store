@@ -16,6 +16,7 @@ from urllib.parse import urlencode, unquote
 from zoneinfo import ZoneInfo
 from datetime import datetime
 from promo_codes import (init_promo_schema, create_code, get_active_code, calculate_discount,
+                         quote_promo, validate_settings, KIND_LABELS,
                          consume_code, normalize_code, PromoError)
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
 from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, migrate_supplier_product_slugs, CatalogValidationError
@@ -401,7 +402,10 @@ def cart_promo_state():
  with db() as conn:
   try:
    row=get_active_code(conn,code)
-   return {'code':row['code'],'percent':row['percent'],'active':True}
+   return {'code':row['code'],'percent':row['percent'],'kind':row['kind'],
+           'kind_label':KIND_LABELS.get(row['kind'],'خصم'),
+           'amount_piastres':row['amount_piastres'],'min_items':row['min_items'],
+           'max_discounted_items':row['max_discounted_items'],'active':True}
   except PromoError as exc:return {'code':str(code)[:32],'percent':0,'active':False,'message':str(exc)}
 
 
@@ -482,20 +486,21 @@ def quote_shipping():
   if quoted is None:return jsonify(ok=False,message='الشحن غير متاح للعنوان المحدد'),404
   try:
    offer=checkout_offer(conn,rows,quoted)
-   promo_code=session.get('promo_code','')
-   promo_discount,promo_percent=calculate_discount(conn,promo_code,offer,rows,quoted)
+   promo=quote_promo(conn,session.get('promo_code',''),offer,rows,quoted)
   except (ValueError,PromoError) as exc:return jsonify(ok=False,message=str(exc)),409
  quote_data=[request.args.get(k,'').strip() for k in ('governorate','city','area')]
- quote_data += [offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo_code,promo_discount]
+ quote_data += [offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo['code'],promo['product_discount'],promo['shipping_discount']]
  ticket=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').dumps(quote_data)
  return jsonify(ok=True,products_total_piastres=offer['displayed_subtotal'],
                 merchandise_total_piastres=offer['merchandise_total'],
                 bundle_discount_piastres=offer['bundle_discount'],
-                promo_code=promo_code,promo_percent=promo_percent,promo_discount_piastres=promo_discount,
+                promo_code=promo['code'],promo_kind=promo['kind'],promo_percent=promo['percent'],
+                promo_discount_piastres=promo['product_discount'],
+                promo_shipping_discount_piastres=promo['shipping_discount'],
                 bundle_unit_count=offer['bundle_unit_count'],
-                shipping_piastres=offer['fee'],
+                shipping_piastres=offer['fee']-promo['shipping_discount'],
                 standard_shipping_piastres=(offer['fee'] if offer['bundle_offer_version']==3 else offer['standard']),
-                shipping_discount_piastres=(0 if offer['bundle_offer_version']==3 else offer['discount']),
+                shipping_discount_piastres=((0 if offer['bundle_offer_version']==3 else offer['discount'])+promo['shipping_discount']),
                 quote_token=ticket)
 
 @app.get('/api/shipping-governorates')
@@ -572,14 +577,14 @@ def checkout():
       quoted=URLSafeTimedSerializer(app.secret_key,salt='checkout-quote-v1').loads(request.form.get('quote_token',''),max_age=1800)
      except (BadSignature,SignatureExpired):
       raise ValueError('حدّث تكلفة التوصيل قبل تأكيد الطلب؛ لم يتم إرسال أي طلب.') from None
-     promo_code=session.get('promo_code','')
-     promo_discount,promo_percent=calculate_discount(c,promo_code,offer,fresh,rate)
-     expected=[gov,city,area,offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo_code,promo_discount]
+     promo=quote_promo(c,session.get('promo_code',''),offer,fresh,rate)
+     expected=[gov,city,area,offer['fee'],offer['displayed_subtotal'],offer['bundle_discount'],offer['bundle_offer_version'],session.get('cart',{}),promo['code'],promo['product_discount'],promo['shipping_discount']]
      if quoted!=expected:raise ValueError('تغيّرت السلة أو تكلفة الشحن. راجع الإجمالي وأكد الطلب مرة أخرى.')
     if not (supplier_cart and supplier_checkout_live()):
-     promo_code=session.get('promo_code','')
-     promo_discount,promo_percent=calculate_discount(c,promo_code,offer,fresh,rate)
-    total=offer['merchandise_total']-promo_discount+offer['fee'];ref='SH-'+secrets.token_hex(6).upper()
+     promo=quote_promo(c,session.get('promo_code',''),offer,fresh,rate)
+    promo_code=promo['code'];promo_discount=promo['product_discount'];promo_shipping_discount=promo['shipping_discount']
+    shipping_due=offer['fee']-promo_shipping_discount
+    total=offer['merchandise_total']-promo_discount+shipping_due;ref='SH-'+secrets.token_hex(6).upper()
     full_address=' | '.join((city,area,address))
     pricing_doc=(shipping_pricing_document_id(c,gov,city,area,rate[0],rate[1]) if supplier_cart else None)
     city_row=(c.execute('SELECT city_id FROM safka_shipping_rates WHERE governorate=? AND city=? AND area=?',
@@ -589,10 +594,10 @@ def checkout():
      raise ValueError('بيانات التوصيل غير مكتملة حاليًا. لم يتم إرسال الطلب.')
     cur=c.execute('''INSERT INTO orders(reference,user_id,customer,phone,governorate,address,shipping_fee,total,
        checkout_key,utm_source,utm_campaign,shipping_supplier_cost,safka_shipping_pricing_document_id,safka_city_id,shipping_standard_fee,shipping_discount,retained_profit_floor,bundle_discount,bundle_offer_version,bundle_unit_count,
-       promo_code,promo_percent,promo_discount)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,offer['fee'],total,key,
-       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id,offer['standard'],offer['discount'],offer['floor'],offer['bundle_discount'],offer['bundle_offer_version'],offer['bundle_unit_count'],
-       promo_code,promo_percent,promo_discount))
+       promo_code,promo_percent,promo_discount,promo_shipping_discount,promo_kind,promo_value,promo_min_items,promo_max_items)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(checkout_key) DO NOTHING''',(ref,session.get('uid'),name,phone,gov,full_address,shipping_due,total,key,
+       session.get('utm_source',''),session.get('utm_campaign',''),rate[1],pricing_doc,supplier_city_id,offer['standard'],offer['discount']+promo_shipping_discount,offer['floor'],offer['bundle_discount'],offer['bundle_offer_version'],offer['bundle_unit_count'],
+       promo_code,promo['percent'],promo_discount,promo_shipping_discount,promo['kind'],promo['value'],promo['min_items'],promo['max_items']))
     if cur.rowcount==0:
      existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
      return redirect('/order/success/'+existing['reference'])
@@ -612,7 +617,7 @@ def checkout():
      'order_ref':ref,'customer_name':name,'customer_phone':phone,
      'governorate':gov,'city':city,'area':area,
      'products_total_piasters':total-offer['fee'],
-     'shipping_piasters':offer['fee'],'total_piasters':total,
+     'shipping_piasters':shipping_due,'total_piasters':total,
      'items':[{'name':p['title'],'qty':q,'options':choices} for p,q,choices in fresh],
      'payment_method':'الدفع عند الاستلام',
     },recipients=recipients,enabled=os.getenv('SHOPY_WA_ENABLED')=='1')
@@ -641,7 +646,7 @@ def checkout():
 def order_success(ref):
  if not current_user():abort(404)
  with db() as c:
-  order=c.execute('SELECT reference,total,shipping_fee,user_id,id,promo_code,promo_percent,promo_discount FROM orders WHERE reference=?',(ref,)).fetchone()
+  order=c.execute('SELECT reference,total,shipping_fee,user_id,id,promo_code,promo_percent,promo_discount,promo_shipping_discount FROM orders WHERE reference=?',(ref,)).fetchone()
   if not order:abort(404)
   user=current_user()
   if not user or order['user_id']!=user['id']:abort(403)
@@ -927,7 +932,7 @@ def egypt_promo_date(value):
 @admin_only
 def admin_promo_codes():
  with db() as conn:codes=conn.execute('SELECT * FROM promo_codes ORDER BY created_at DESC,code LIMIT 200').fetchall()
- return render_template('promo_admin.html',codes=codes,now_epoch=int(time.time()))
+ return render_template('promo_admin.html',codes=codes,now_epoch=int(time.time()),kind_labels=KIND_LABELS)
 
 
 def egypt_datetime_epoch(value):
@@ -939,18 +944,32 @@ def egypt_datetime_epoch(value):
   raise PromoError('صيغة التاريخ والوقت غير صحيحة.') from None
 
 
+def read_promo_admin_settings():
+ """Server-enforced form rules; percentage and monetary amounts never mixed."""
+ kind=request.form.get('kind','percent').strip()
+ percent=int(request.form.get('percent','0') or 0) if kind=='percent' else 0
+ amount=(parse_money(request.form.get('amount_egp','')) if kind in ('fixed_order','fixed_item','shipping_amount') else 0)
+ minimum=int(request.form.get('min_items','1') or 1)
+ maximum=(int(request.form.get('max_discounted_items','')) if kind=='fixed_item' and
+          request.form.get('max_discounted_items','').strip() else None)
+ max_uses=None if request.form.get('unlimited')=='1' else int(request.form.get('max_uses',''))
+ starts=egypt_datetime_epoch(request.form.get('starts_at',''))
+ ends=egypt_datetime_epoch(request.form.get('expires_at',''))
+ validate_settings(kind,percent,amount,minimum,maximum,max_uses,starts,ends)
+ return kind,percent,amount,minimum,maximum,max_uses,starts,ends
+
+
 @app.post('/admin/promo-codes/create')
 @admin_only
 def admin_create_promo():
  try:
-  percentage=int(request.form.get('percent',''))
-  uses=None if request.form.get('unlimited')=='1' else int(request.form.get('max_uses',''))
-  start=egypt_datetime_epoch(request.form.get('starts_at',''))
-  end=egypt_datetime_epoch(request.form.get('expires_at',''))
-  with db() as conn:create_code(conn,request.form.get('code',''),percentage,uses,start,end)
+  kind,percent,amount,minimum,maximum,uses,start,end=read_promo_admin_settings()
+  with db() as conn:
+   create_code(conn,request.form.get('code',''),percent,uses,start,end,
+               kind=kind,amount_piastres=amount,min_items=minimum,max_discounted_items=maximum)
   flash('تم إنشاء البرومو كود.')
  except (PromoError,ValueError) as exc:
-  flash(str(exc) if isinstance(exc,PromoError) else 'راجع نسبة الخصم وعدد الاستخدامات.')
+  flash(str(exc) if isinstance(exc,PromoError) else 'راجع نوع الخصم والمبلغ وعدد القطع والتواريخ.')
  return redirect('/admin/promo-codes')
 
 
@@ -972,19 +991,15 @@ def admin_toggle_promo(code):
 def admin_edit_promo(code):
  try:
   code=normalize_code(code)
-  percent=int(request.form.get('percent',''))
-  limit=None if request.form.get('unlimited')=='1' else int(request.form.get('max_uses',''))
-  starts=egypt_datetime_epoch(request.form.get('starts_at',''))
-  expires=egypt_datetime_epoch(request.form.get('expires_at',''))
-  if not 1<=percent<=100 or (limit is not None and not 1<=limit<=10000000) or expires<=starts or expires<=int(time.time()):
-   raise PromoError('راجع نسبة الخصم وعدد الاستخدامات وتواريخ الصلاحية.')
+  kind,percent,amount,minimum,maximum,limit,starts,expires=read_promo_admin_settings()
   with db() as conn:
    row=conn.execute('SELECT used_count FROM promo_codes WHERE code=?',(code,)).fetchone()
    if not row:abort(404)
    if limit is not None and limit<row['used_count']:
     raise PromoError('الحد الجديد ماينفعش يكون أقل من عدد الاستخدامات السابقة.')
-   conn.execute('UPDATE promo_codes SET percent=?,max_uses=?,starts_at=?,expires_at=? WHERE code=?',
-                (percent,limit,starts,expires,code))
+   conn.execute("""UPDATE promo_codes SET kind=?,percent=?,amount_piastres=?,min_items=?,
+                  max_discounted_items=?,max_uses=?,starts_at=?,expires_at=? WHERE code=?""",
+                (kind,percent,amount,minimum,maximum,limit,starts,expires,code))
   flash('تم تعديل البرومو كود.')
  except (PromoError,ValueError) as exc:
   flash(str(exc) if isinstance(exc,PromoError) else 'راجع القيم المدخلة.')

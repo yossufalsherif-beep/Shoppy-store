@@ -10,7 +10,7 @@
   <button class="btn btn-dark" name="action" value="apply">تطبيق الكود</button>
  </form>
  {% if promo_state %}<div class="summary-note" role="status">
-  {% if promo_state.active %}الكود <strong dir="ltr">{{promo_state.code}}</strong> مضاف — خصم {{promo_state.percent}}%. السعر النهائي بيتأكد بعد اختيار التوصيل.
+  {% if promo_state.active %}الكود <strong dir="ltr">{{promo_state.code}}</strong> مضاف — {{promo_state.kind_label}}{% if promo_state.kind=='percent' %} {{promo_state.percent}}%{% elif promo_state.kind!='free_shipping' %} بقيمة {{money(promo_state.amount_piastres)}} ج.م{% endif %}. مطلوب {{promo_state.min_items}} قطع على الأقل. السعر النهائي بعد تحديد التوصيل.
   {% else %}{{promo_state.message}}{% endif %}
   <form method="post" action="/promo-code/apply"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="return_to" value="/promo-code"><button class="muted-button" name="action" value="remove">إزالة الكود</button></form>
  </div>{% endif %}
