@@ -1,4 +1,4 @@
-"""Phase-one guest checkout, opt-in funnel privacy, and saved phone tests."""
+"""Phase-one guest checkout, anonymous funnel privacy, and saved phone tests."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,23 +31,40 @@ class PhaseOneTests(unittest.TestCase):
         with store.db() as conn:
             return {r['stage']:r['visits'] for r in conn.execute('SELECT stage,visits FROM analytics_counters')}
 
-    def test_tracking_is_off_by_default_and_after_refusal(self):
-        self.client.get('/')
-        self.client.get('/products/phase-one-item')
-        self.assertEqual(self.client.post('/analytics/event',data={'csrf':self.token(),'stage':'home'}).status_code,403)
+    def test_anonymous_events_without_popup_or_analytics_cookie(self):
+        page=self.client.get('/')
+        html=page.data.decode('utf-8')
+        self.assertNotIn('id="analytics-choice"',html)
+        self.assertNotIn('data-analytics-consent',html)
+        self.assertIn('analytics.js',html)
         self.assertEqual(self.counters(),{})
-        self.assertTrue(self.client.post('/analytics/consent',data={'csrf':self.token(),'choice':'no'}).json['ok'])
-        self.assertEqual(self.client.post('/analytics/event',data={'csrf':self.token(),'stage':'home'}).status_code,403)
-        self.assertEqual(self.counters(),{})
-
-    def test_optin_deduplicates_per_browser_session(self):
         csrf=self.token()
-        self.assertEqual(self.client.post('/analytics/consent',data={'csrf':csrf,'choice':'yes'}).status_code,200)
-        self.assertEqual(self.client.post('/analytics/event',data={'csrf':csrf,'stage':'home'}).status_code,200)
-        self.assertEqual(self.client.post('/analytics/event',data={'csrf':csrf,'stage':'home'}).status_code,200)
-        self.assertEqual(self.counters(),{'home':1})
+        first=self.client.post('/analytics/event',data={'csrf':csrf,'stage':'home'})
+        self.assertTrue(first.json['recorded'])
+        second=self.client.post('/analytics/event',data={'csrf':csrf,'stage':'home'})
+        self.assertTrue(second.json['recorded'])
+        self.assertEqual(self.counters(),{'home':2})
+        with self.client.session_transaction() as s:
+            self.assertNotIn('analytics_consent',s)
+            self.assertNotIn('analytics_seen',s)
         self.assertEqual(self.client.post('/analytics/event',data={'csrf':csrf,'stage':'arbitrary'}).status_code,400)
-        self.assertEqual(self.client.post('/analytics/consent',data={'csrf':'wrong','choice':'no'}).status_code,400)
+        self.assertEqual(self.client.post('/analytics/event',data={'csrf':'wrong','stage':'home'}).status_code,400)
+        self.assertEqual(self.counters(),{'home':2})
+
+    def test_privacy_opt_out_and_existing_refusals_are_respected(self):
+        csrf=self.token()
+        disabled=self.client.post('/analytics/preference',data={'csrf':csrf,'choice':'no'})
+        self.assertEqual(disabled.status_code,303)
+        self.assertEqual(disabled.location,'/privacy')
+        reply=self.client.post('/analytics/event',data={'csrf':csrf,'stage':'home'})
+        self.assertFalse(reply.json['recorded'])
+        self.assertEqual(self.counters(),{})
+        self.assertIn('تشغيل الإحصاءات',self.client.get('/privacy').data.decode('utf-8'))
+        self.assertEqual(self.client.post('/analytics/consent',data={'csrf':csrf,'choice':'no'}).status_code,200)
+        self.assertEqual(self.counters(),{})
+        enabled=self.client.post('/analytics/preference',data={'csrf':csrf,'choice':'yes'})
+        self.assertEqual(enabled.status_code,303)
+        self.assertTrue(self.client.post('/analytics/event',data={'csrf':csrf,'stage':'home'}).json['recorded'])
         self.assertEqual(self.counters(),{'home':1})
 
     def test_customer_phone_is_saved_and_unverified_by_default(self):

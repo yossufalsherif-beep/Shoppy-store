@@ -19,7 +19,8 @@ class PublicPolicyTests(unittest.TestCase):
         self.assertIn('Supabase',page.data.decode('utf-8'))
         self.assertIn('سجلات الطلبات',page.data.decode('utf-8'))
         self.assertIn('/data-deletion',page.data.decode('utf-8'))
-        self.assertNotIn('name="csrf"',page.data.decode('utf-8'))
+        self.assertIn('action="/analytics/preference"',page.data.decode('utf-8'))
+        self.assertIn('name="csrf"',page.data.decode('utf-8'))
 
     def test_data_removal_instructions_are_public_and_accurate(self):
         page=self.client.get('/data-deletion')
