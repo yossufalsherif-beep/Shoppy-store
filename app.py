@@ -1031,6 +1031,20 @@ def admin_edit_promo(code):
   return promo_admin_response(str(exc) if isinstance(exc,PromoError) else 'راجع القيم المدخلة.',error=True)
 
 
+@app.get('/admin/safka-orders')
+@admin_only
+def admin_safka_orders_board():
+ with db() as c:
+  rows=c.execute("""SELECT o.reference,o.created_at,o.status AS local_status,
+        COALESCE(s.status,'not_queued') AS push_status,
+        COALESCE(s.supplier_status,'') AS supplier_status,
+        s.updated_at,s.attempt_count
+      FROM orders o LEFT JOIN safka_order_outbox s ON s.order_id=o.id
+      ORDER BY o.id DESC LIMIT 100""").fetchall()
+ attention=sum(1 for r in rows if r['push_status'] in ('unknown','preflight_failed','failed') and r['supplier_status'] not in ('collected','available'))
+ return render_template('safka_orders_admin.html',orders=rows,attention=attention,supplier_labels=SUPPLIER_STATUS_LABELS)
+
+
 @app.get('/admin/profit')
 @admin_only
 def admin_profit_report():
