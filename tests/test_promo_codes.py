@@ -359,17 +359,16 @@ class PromoNoRefreshTests(StoreTests):
             self.assertEqual(session['promo_code'],'FREE50')
 
     def test_customer_promo_markup_has_ajax_apply_remove_forms_without_nested_forms(self):
-        for url in ('/promo-code','/cart'):
-            response=self.client.get(url)
-            self.assertEqual(response.status_code,200)
-            self.assertIn(b'data-async-promo="customer"',response.data)
-            self.assertIn(b'data-promo-remove',response.data)
-            self.assertIn(b'promo.js',response.data)
-        checkout_template=store.app.jinja_env.get_template('checkout.html')
-        self.assertIn('promo:changed',checkout_template.render.__code__.co_name if False else
-                      checkout_template.environment.loader.get_source(store.app.jinja_env,'checkout.html')[0])
-        self.assertIn('data-async-promo="customer"',
-                      checkout_template.environment.loader.get_source(store.app.jinja_env,'checkout.html')[0])
+        response=self.client.get('/promo-code')
+        self.assertEqual(response.status_code,200)
+        self.assertIn(b'data-async-promo="customer"',response.data)
+        self.assertIn(b'data-promo-remove',response.data)
+        self.assertIn(b'promo.js',response.data)
+        for template in ('checkout.html','cart.html'):
+            html=store.app.jinja_env.loader.get_source(store.app.jinja_env,template)[0]
+            self.assertIn('data-async-promo="customer"',html)
+            self.assertIn('data-promo-remove',html)
+            if template=='checkout.html':self.assertIn('promo:changed',html)
 
     def test_admin_ajax_creates_and_disables_free_shipping_without_redirect(self):
         self.admin_login()
