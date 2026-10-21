@@ -154,7 +154,7 @@ class PromoKindsTests(StoreTests):
         super().setUp()
         self.now=int(time.time())
         self.offer={'merchandise_total':25000,'fee':5000,'floor':100}
-        self.product={'supplier_cost':10000}
+        self.product={'supplier_cost':2000}
         self.rate=(9500,8500)
 
     def build(self,name,kind,amount=0,minimum=1,cap=None):
@@ -250,7 +250,7 @@ class PromoSupplierFlowTests(AutomaticCheckoutTests):
         data=self.reprice('SHIP30')
         self.assertEqual(data['promo_shipping_discount_piastres'],3000)
         self.assertEqual(data['promo_discount_piastres'],0)
-        self.assertEqual(data['shipping_piastres'],2000)
+        self.assertEqual(data['shipping_piastres'],6500)
         with patch('safka_auto_orders.submit_payload',
                    return_value=OrderSubmissionOutcome('accepted','offline-id')) as send:
             response=self.client.post('/checkout',data=self.delivery)
@@ -260,9 +260,9 @@ class PromoSupplierFlowTests(AutomaticCheckoutTests):
             order=conn.execute('SELECT * FROM orders').fetchone()
             self.assertEqual(order['promo_kind'],'shipping_amount')
             self.assertEqual(order['promo_shipping_discount'],3000)
-            self.assertEqual(order['shipping_fee'],2000)
+            self.assertEqual(order['shipping_fee'],6500)
             self.assertEqual(order['promo_discount'],0)
-            self.assertEqual(order['total'],data['merchandise_total_piastres']+2000)
+            self.assertEqual(order['total'],data['merchandise_total_piastres']+6500)
             self.assertEqual(prepare_dry_run(conn,order['id'])['total_to_collect_piastres'],order['total'])
             conn.execute('UPDATE orders SET promo_shipping_discount=promo_shipping_discount+1')
             with self.assertRaises(Exception):prepare_dry_run(conn,order['id'])
