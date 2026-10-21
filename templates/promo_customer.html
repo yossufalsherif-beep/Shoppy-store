@@ -1,20 +1,21 @@
 {% extends 'base.html' %}
 {% block title %}كود الخصم — Shoppy Store{% endblock %}
 {% block content %}
-<div class="page-title"><span class="eyebrow">وفر في طلبك</span><h1>كود الخصم</h1><p>معاك كود؟ ضيفه هنا وهتلاقي قيمة الخصم في ملخص الطلب قبل التأكيد.</p></div>
-<div class="panel" style="max-width:720px;margin-inline:auto">
+<div class="page-title"><span class="eyebrow">وفر في طلبك</span><h1>كود الخصم</h1>
+<p>معاك كود؟ ضيفه هنا وشوف الخصم في ملخص الطلب قبل ما تأكد.</p></div>
+<div class="panel" data-promo-box style="max-width:720px;margin-inline:auto">
  <h2>أضف كود الخصم</h2>
- <form method="post" action="/promo-code/apply" class="auth-form">
+ <form method="post" action="/promo-code/apply" class="auth-form" data-async-promo="customer">
   <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="return_to" value="/promo-code">
   <label>البرومو كود <input name="promo_code" autocomplete="off" maxlength="32" placeholder="WELCOME10" value="{{promo_state.code if promo_state else ''}}" required></label>
-  <button class="btn btn-dark" name="action" value="apply">تطبيق الكود</button>
+  <button class="btn btn-dark" type="submit" name="action" value="apply">تطبيق الكود</button>
  </form>
- {% if promo_state %}<div class="summary-note" role="status">
-  {% if promo_state.active %}الكود <strong dir="ltr">{{promo_state.code}}</strong> مضاف — {{promo_state.kind_label}}{% if promo_state.kind=='percent' %} {{promo_state.percent}}%{% elif promo_state.kind!='free_shipping' %} بقيمة {{money(promo_state.amount_piastres)}} ج.م{% endif %}. مطلوب {{promo_state.min_items}} قطع على الأقل. السعر النهائي بعد تحديد التوصيل.
-  {% else %}{{promo_state.message}}{% endif %}
-  <form method="post" action="/promo-code/apply"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="return_to" value="/promo-code"><button class="muted-button" name="action" value="remove">إزالة الكود</button></form>
- </div>{% endif %}
- <p class="fine-print">تطبق الخصومات المؤهلة على قيمة المنتجات فقط بعد أي عرض حالي، ولا يمكن تطبيقها على سلة تؤدي لخسارة أو بعد انتهاء الكود.</p>
+ <p class="summary-note" role="status" aria-live="polite" data-promo-state {% if not promo_state %}hidden{% endif %}>{% if promo_state %}{% if promo_state.active %}الكود {{promo_state.code}} مضاف — {{promo_state.kind_label}}{% if promo_state.kind=='percent' %} {{promo_state.percent}}%{% elif promo_state.kind!='free_shipping' %} بقيمة {{money(promo_state.amount_piastres)}} ج.م{% endif %}. مطلوب {{promo_state.min_items}} قطعة على الأقل.{% else %}{{promo_state.message}}{% endif %}{% endif %}</p>
+ <form method="post" action="/promo-code/apply" data-async-promo="customer" data-promo-remove {% if not promo_state %}hidden{% endif %}>
+  <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="return_to" value="/promo-code"><input type="hidden" name="action" value="remove">
+  <button type="submit" class="muted-button" name="action" value="remove">إزالة الكود</button>
+ </form>
+ <p class="fine-print">خصم المنتجات يُحسب بعد عروض السلة، وخصم الشحن أو الشحن المجاني يُحسب على تكلفة الشحن المؤهلة. قيمة الخصم النهائية بتظهر بعد اختيار عنوان التوصيل.</p>
  <a class="btn btn-outline btn-wide" href="/cart">روح للسلة ←</a>
 </div>
 {% endblock %}

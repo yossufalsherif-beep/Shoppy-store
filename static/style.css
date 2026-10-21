@@ -201,3 +201,13 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .password-visibility-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8}
 .password-eye-slash{display:none}
 .password-visibility-toggle.is-visible .password-eye-slash{display:block}
+
+
+/* Voucher controls respond inline; never obscure the checkout fields. */
+.promo-code-box form[data-async-promo]{display:flex;flex-wrap:wrap;gap:9px;align-items:center;margin:10px 0}
+.promo-code-box form[data-async-promo] label{width:100%}
+.promo-code-box input[name="promo_code"]{flex:1 1 140px;min-width:0}
+[data-promo-state],[data-promo-feedback],[data-promo-admin-feedback]{font-size:14px;line-height:1.6;margin:10px 0}
+[data-promo-feedback].is-error{color:#a12626;font-weight:600}
+[data-promo-admin-feedback]{color:#117452;font-weight:600}
+[data-select-free-shipping]{margin-block:12px;border-color:#087887;white-space:normal}

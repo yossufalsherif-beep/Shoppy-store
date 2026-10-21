@@ -5,9 +5,12 @@
 <p>اعمل نسبة خصم أو مبلغ ثابت على المنتجات أو الشحن، وحدد القطع المطلوبة وعدد الاستخدامات ووقت الانتهاء بتوقيت القاهرة.</p>
 <a href="/admin" class="text-link">← الرجوع للوحة التحكم</a></div>
 <div class="checkout-layout">
-<section class="panel">
+<section class="panel" data-promo-admin-section>
  <h2>إنشاء برومو كود</h2>
- <form action="/admin/promo-codes/create" method="post" class="auth-form promo-admin-form">
+ <p role="status" aria-live="polite" data-promo-admin-feedback hidden></p>
+ <button type="button" class="btn btn-outline" data-select-free-shipping>🚚 كود شحن مجاني بالكامل</button>
+ <p class="fine-print">اضغط الزر ده علشان تختار «شحن مجاني» مباشرة، وبعدها اكتب الكود وحدد مدته وعدد استخداماته.</p>
+ <form action="/admin/promo-codes/create" method="post" class="auth-form promo-admin-form" data-async-promo="admin">
   <input type="hidden" name="csrf" value="{{csrf}}">
   <label>كود الخصم بالإنجليزية <input name="code" placeholder="WELCOME10" minlength="4" maxlength="32" pattern="[A-Za-z0-9][A-Za-z0-9_-]{2,30}[A-Za-z0-9]" required></label>
   <label>نوع الخصم
@@ -37,7 +40,7 @@
  <p class="fine-print">عدد استخدامات الكود يُحسب عند تسجيل الطلب، ولا يعود تلقائيًا بعد إلغائه.</p>
 </aside>
 </div>
-<section class="admin-section">
+<section class="admin-section" id="promo-code-list" data-promo-admin-section>
  <div class="section-heading"><div><h2>الأكواد المسجلة</h2><p>الأحدث أولًا</p></div><strong class="count">{{codes|length}}</strong></div>
  <div class="panel table-panel"><div class="table-scroll"><table><thead><tr>
  <th>الكود ونوعه</th><th>الخصم</th><th>القطع</th><th>الاستخدامات</th><th>الصلاحية</th><th>الحالة</th><th>التحكم</th>
@@ -50,8 +53,8 @@
   <td>{{p.used_count}} / {{p.max_uses if p.max_uses is not none else 'غير محدود'}}</td>
   <td><small>من {{p.starts_at|egypt_promo_date|replace('T',' ')}}</small><small>حتى {{p.expires_at|egypt_promo_date|replace('T',' ')}}</small></td>
   <td>{% if not p.active %}موقوف{% elif p.expires_at<=now_epoch %}منتهي{% elif p.starts_at>now_epoch %}لم يبدأ{% elif p.max_uses is not none and p.used_count>=p.max_uses %}نفدت الاستخدامات{% else %}فعّال{% endif %}</td>
-  <td><form method="post" action="/admin/promo-codes/{{p.code}}/toggle"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline" type="submit">{{'تفعيل' if not p.active else 'إيقاف'}}</button></form>
-   <details><summary>تعديل</summary><form method="post" class="auth-form promo-admin-form" action="/admin/promo-codes/{{p.code}}/edit">
+  <td><form method="post" action="/admin/promo-codes/{{p.code}}/toggle" data-async-promo="admin"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline" type="submit">{{'تفعيل' if not p.active else 'إيقاف'}}</button></form>
+   <details><summary>تعديل</summary><form method="post" class="auth-form promo-admin-form" data-async-promo="admin" action="/admin/promo-codes/{{p.code}}/edit">
     <input type="hidden" name="csrf" value="{{csrf}}">
     <label>نوع الخصم <select name="kind" class="promo-kind">{% for key,label in kind_labels.items() %}<option value="{{key}}" {% if p.kind==key %}selected{% endif %}>{{label}}</option>{% endfor %}</select></label>
     <label data-promo-field="percent">النسبة % <input type="number" name="percent" min="1" max="100" value="{{p.percent if p.percent else 10}}"></label>
@@ -69,18 +72,5 @@
  {% else %}<tr><td colspan="7">لسه مفيش أكواد اتعملت.</td></tr>{% endfor %}
  </tbody></table></div></div>
 </section>
-<script>
-document.querySelectorAll('.promo-admin-form').forEach(form=>{
- const type=form.querySelector('.promo-kind');
- const refresh=()=>{
-  const kind=type.value;
-  const showAmount=['fixed_order','fixed_item','shipping_amount'].includes(kind);
-  for(const field of form.querySelectorAll('[data-promo-field]')){
-   const name=field.dataset.promoField;
-   field.hidden=(name==='percent' ? kind!=='percent' : name==='amount' ? !showAmount : kind!=='fixed_item');
-  }
- };
- type.addEventListener('change',refresh);refresh();
-});
-</script>
+
 {% endblock %}

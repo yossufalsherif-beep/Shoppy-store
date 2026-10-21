@@ -312,5 +312,104 @@ class PromoSupplierFlowTests(AutomaticCheckoutTests):
                              data['merchandise_total_piastres']-2000)
             self.assertEqual(preview['total_to_collect_piastres'],order['total'])
 
+
+class PromoNoRefreshTests(StoreTests):
+    def setUp(self):
+        super().setUp()
+        now=int(time.time())
+        with store.db() as conn:
+            create_code(conn,'FREE50',0,2,now-100,now+3600,
+                        kind='free_shipping',min_items=1,now=now)
+
+    def test_apply_and_remove_via_json_keep_customer_session_and_never_redirect(self):
+        with self.client.session_transaction() as session:
+            session['checkout_address_draft']='test address stays intact'
+            session['cart']={'sample':'example'}
+        apply=self.client.post('/promo-code/apply',data={
+            'csrf':self.token(),'action':'apply','promo_code':'free50','return_to':'/checkout'
+        },headers={'Accept':'application/json','X-Requested-With':'XMLHttpRequest'})
+        self.assertEqual(apply.status_code,200)
+        self.assertEqual(apply.json['promo_state']['kind'],'free_shipping')
+        self.assertTrue(apply.json['ok'])
+        self.assertNotIn('Location',apply.headers)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session['checkout_address_draft'],'test address stays intact')
+            self.assertEqual(session['cart'],{'sample':'example'})
+            self.assertEqual(session['promo_code'],'FREE50')
+        remove=self.client.post('/promo-code/apply',data={
+            'csrf':self.token(),'action':'remove','return_to':'/checkout'
+        },headers={'Accept':'application/json'})
+        self.assertEqual(remove.status_code,200)
+        self.assertIsNone(remove.json['promo_state'])
+        self.assertNotIn('Location',remove.headers)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session['checkout_address_draft'],'test address stays intact')
+            self.assertNotIn('promo_code',session)
+        with store.db() as conn:
+            self.assertEqual(conn.execute("SELECT used_count FROM promo_codes WHERE code='FREE50'").fetchone()[0],0)
+
+    def test_bad_ajax_code_reports_error_without_replacing_previous_discount(self):
+        self.client.post('/promo-code/apply',data={
+            'csrf':self.token(),'promo_code':'FREE50'},headers={'Accept':'application/json'})
+        failed=self.client.post('/promo-code/apply',data={
+            'csrf':self.token(),'promo_code':'NO-SUCH-CODE'},headers={'Accept':'application/json'})
+        self.assertEqual(failed.status_code,422)
+        self.assertFalse(failed.json['ok'])
+        with self.client.session_transaction() as session:
+            self.assertEqual(session['promo_code'],'FREE50')
+
+    def test_customer_promo_markup_has_ajax_apply_remove_forms_without_nested_forms(self):
+        response=self.client.get('/promo-code')
+        self.assertEqual(response.status_code,200)
+        self.assertIn(b'data-async-promo="customer"',response.data)
+        self.assertIn(b'data-promo-remove',response.data)
+        self.assertIn(b'promo.js',response.data)
+        for template in ('checkout.html','cart.html'):
+            html=store.app.jinja_env.loader.get_source(store.app.jinja_env,template)[0]
+            self.assertIn('data-async-promo="customer"',html)
+            self.assertIn('data-promo-remove',html)
+            if template=='checkout.html':self.assertIn('promo:changed',html)
+
+    def test_admin_ajax_creates_and_disables_free_shipping_without_redirect(self):
+        self.admin_login()
+        from datetime import datetime,timedelta
+        from zoneinfo import ZoneInfo
+        now=datetime.now(ZoneInfo('Africa/Cairo'))
+        start=(now-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
+        end=(now+timedelta(days=2)).strftime('%Y-%m-%dT%H:%M')
+        page=self.client.get('/admin/promo-codes')
+        self.assertEqual(page.status_code,200)
+        self.assertIn(b'data-select-free-shipping',page.data)
+        self.assertIn(b'data-async-promo="admin"',page.data)
+        created=self.client.post('/admin/promo-codes/create',data={
+            'csrf':self.token(),'code':'FREESHIP2026','kind':'free_shipping',
+            'min_items':'1','max_uses':'10','starts_at':start,'expires_at':end,
+        },headers={'Accept':'application/json'})
+        self.assertEqual(created.status_code,200,created.get_data(as_text=True))
+        self.assertTrue(created.json['ok'])
+        self.assertNotIn('Location',created.headers)
+        with store.db() as conn:
+            created_row=conn.execute("SELECT kind,max_uses,percent,amount_piastres FROM promo_codes WHERE code='FREESHIP2026'").fetchone()
+            self.assertEqual(tuple(created_row),('free_shipping',10,0,0))
+        toggled=self.client.post('/admin/promo-codes/FREESHIP2026/toggle',
+                     data={'csrf':self.token()},headers={'Accept':'application/json'})
+        self.assertEqual(toggled.status_code,200)
+        self.assertTrue(toggled.json['ok'])
+        with store.db() as conn:
+            self.assertEqual(conn.execute("SELECT active FROM promo_codes WHERE code='FREESHIP2026'").fetchone()[0],0)
+
+    def test_admin_form_json_validation_preserves_submitted_values_on_error(self):
+        self.admin_login()
+        bad=self.client.post('/admin/promo-codes/create',data={
+            'csrf':self.token(),'code':'BADFREE','kind':'free_shipping',
+            'min_items':'1','max_uses':'1','starts_at':'bad','expires_at':'bad'
+        },headers={'Accept':'application/json'})
+        self.assertEqual(bad.status_code,422)
+        self.assertFalse(bad.json['ok'])
+        self.assertNotIn('Location',bad.headers)
+        with store.db() as conn:
+            self.assertEqual(conn.execute("SELECT count(*) FROM promo_codes WHERE code='BADFREE'").fetchone()[0],0)
+
+
 if __name__=='__main__':
     unittest.main()
