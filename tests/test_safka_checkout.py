@@ -123,6 +123,25 @@ class AutomaticCheckoutTests(unittest.TestCase):
    self.assertEqual(outbox['status'],'accepted')
    self.assertEqual(outbox['attempt_count'],1)
    self.assertEqual(outbox['submitted_commission_piastres'],6000)
+ def test_guest_checkout_saves_order_without_account_and_uses_session_only(self):
+  # A buyer can checkout without registration; a reference URL alone is not authorization.
+  with self.client.session_transaction() as s:s.pop('uid',None)
+  response=self.client.get('/checkout')
+  self.assertEqual(response.status_code,200)
+  self.assertIn('من غير الحاجة لإنشاء حساب'.encode(),response.data)
+  self.delivery['quote_token']=self.client.get('/api/shipping-quote',query_string={
+    k:self.delivery[k] for k in ('governorate','city','area')}).json['quote_token']
+  with patch('safka_auto_orders.submit_payload',return_value=OrderSubmissionOutcome('accepted','guest-offline-id')):
+   result=self.client.post('/checkout',data=self.delivery)
+  self.assertIn('/order/success/',result.location)
+  self.assertEqual(self.client.get(result.location).status_code,200)
+  with store.db() as c:
+   order=c.execute('SELECT user_id,phone FROM orders').fetchone()
+   self.assertIsNone(order['user_id'])
+   self.assertEqual(order['phone'],self.delivery['phone'])
+  with self.client.session_transaction() as s:s.pop('my_order_refs',None)
+  self.assertEqual(self.client.get(result.location).status_code,404)
+
  def test_changed_shipping_requires_customer_to_review_new_total(self):
   with store.db() as c:c.execute('UPDATE safka_shipping_rates SET fee=10500,supplier_fee=9500')
   with patch('safka_auto_orders.submit_payload') as send:

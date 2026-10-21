@@ -26,12 +26,12 @@ class CustomerExperienceTests(unittest.TestCase):
         return 'customer-test-csrf'
     def register(self,email='customer@test.example'):
         return self.client.post('/register',data={'csrf':self.token(),'email':email,'password':'strong-customer-password'})
-    def test_guest_cart_survives_registration_and_resumes_delivery_checkout(self):
+    def test_guest_cart_survives_optional_registration(self):
         self.client.post('/cart/add/1',data={'csrf':self.token()})
-        self.assertEqual(self.client.get('/checkout').status_code,302)
+        self.assertEqual(self.client.get('/checkout').status_code,200)
         created=self.register()
         self.assertEqual(created.status_code,302)
-        self.assertEqual(created.headers['Location'],'/checkout')
+        self.assertEqual(created.headers['Location'],'/account')
         with self.client.session_transaction() as sess:
             self.assertEqual(sess['cart']['1'],1)
             self.assertIn('uid',sess)

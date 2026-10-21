@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}رحلة التسوق — Shoppy Store{% endblock %}
+{% block content %}
+<div class="page-title"><span class="eyebrow">لوحة الإدارة / تحليلات مجهولة</span><h1>خطوات رحلة التسوق</h1><p>إحصاءات اليوم {{day}} من الزوار الذين وافقوا على القياس الاختياري فقط. الخطوات التي لم تُسجّل لا يمكن استنتاجها من هذه الأرقام.</p></div>
+<section class="panel admin-section">
+ <div class="table-wrap"><table class="table"><thead><tr><th>المرحلة</th><th>الجلسات المسجلة</th></tr></thead><tbody>
+ {% set labels={'home':'فتح الرئيسية','product_view':'مشاهدة منتج','cart_add':'إضافة منتج للسلة','cart_view':'فتح السلة','checkout_view':'فتح صفحة إتمام الطلب','shipping_quote':'حساب سعر الشحن','order_created':'تسجيل طلب بنجاح'} %}
+ {% for stage,visits in stages %}<tr><td>{{labels.get(stage,stage)}}</td><td>{{visits}}</td></tr>{% endfor %}
+ </tbody></table></div>
+ <p class="fine-print">العداد لكل مرحلة مرة واحدة في الجلسة بعد الموافقة. ده مقياس اتجاهات وليس Conversion Rate دقيقًا: الضيف ممكن يبدأ من صفحة المنتج مباشرة أو يرفض الإحصاءات. بيانات التصفح غير مرتبطة بأرقام الطلبات ولا بعناوين العملاء، ولا بنرسلها إلى Google أو Meta.</p>
+ <a href="/admin" class="btn btn-outline">الرجوع للوحة الإدارة</a>
+</section>
+{% endblock %}
