@@ -719,34 +719,39 @@ def complete_customer_auth(uid,role):
  return redirect('/account')
 
 
-# Anonymous, consent-only daily stage totals. No visitor, order, address or IP identifiers.
+# Anonymous daily stage EVENT totals without visitor, order, address, IP or tracking identifiers.
+# Honor existing refusals and privacy-page opt-outs; no popup.
 FUNNEL_STAGES=('home','product_view','cart_add','cart_view','checkout_view','shipping_quote','order_created')
 def track_funnel(stage):
- if stage not in FUNNEL_STAGES or session.get('analytics_consent')!='yes':return False
- seen=session.get('analytics_seen',[])
- if stage in seen:return False
+ if stage not in FUNNEL_STAGES or session.get('analytics_consent')=='no':return False
  today=datetime.now(ZoneInfo('Africa/Cairo')).strftime('%Y-%m-%d')
  with db() as conn:
   conn.execute("""INSERT INTO analytics_counters(day,stage,visits) VALUES(?,?,1)
     ON CONFLICT(day,stage) DO UPDATE SET visits=analytics_counters.visits+1""",(today,stage))
- session['analytics_seen']=(seen+[stage])[-len(FUNNEL_STAGES):]
  return True
 
 @app.post('/analytics/consent')
 def update_analytics_consent():
+ # Compatibility with cached previous-version browsers.
  choice=request.form.get('choice','')
  if choice not in ('yes','no'):abort(400)
  session['analytics_consent']=choice
  session.pop('analytics_seen',None)
  return jsonify(ok=True,enabled=choice=='yes')
 
+@app.post('/analytics/preference')
+def analytics_preference():
+ choice=request.form.get('choice','')
+ if choice not in ('yes','no'):abort(400)
+ session['analytics_consent']=choice
+ session.pop('analytics_seen',None)
+ return redirect('/privacy',code=303)
+
 @app.post('/analytics/event')
 def analytics_event():
  stage=request.form.get('stage','')
  if stage not in ('home','product_view','cart_view','checkout_view'):abort(400)
- if session.get('analytics_consent')!='yes':return jsonify(ok=False),403
- track_funnel(stage)
- return jsonify(ok=True)
+ return jsonify(ok=True,recorded=track_funnel(stage))
 
 @app.route('/register',methods=['GET','POST'])
 def register():
