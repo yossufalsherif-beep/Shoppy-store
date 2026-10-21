@@ -49,6 +49,32 @@ class PromoAdminTests(StoreTests):
         with store.db() as conn:
             with self.assertRaises(PromoError):get_active_code(conn,'WELCOME10')
 
+    def test_admin_creates_fixed_shipping_code_and_edits_to_free_shipping(self):
+        self.admin_login()
+        from datetime import datetime,timedelta
+        from zoneinfo import ZoneInfo
+        now=datetime.now(ZoneInfo('Africa/Cairo'))
+        start=(now-timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M')
+        expiry=(now+timedelta(days=3)).strftime('%Y-%m-%dT%H:%M')
+        response=self.client.post('/admin/promo-codes/create',data={
+            'csrf':self.token(),'code':'SHIP30','kind':'shipping_amount',
+            'amount_egp':'30','percent':'10','min_items':'2','max_uses':'5',
+            'starts_at':start,'expires_at':expiry})
+        self.assertEqual(response.status_code,302)
+        with store.db() as conn:
+            code=conn.execute("SELECT * FROM promo_codes WHERE code='SHIP30'").fetchone()
+            self.assertEqual((code['kind'],code['amount_piastres'],code['min_items'],code['max_uses']),
+                             ('shipping_amount',3000,2,5))
+            self.assertEqual(code['percent'],0)
+        updated=self.client.post('/admin/promo-codes/SHIP30/edit',data={
+            'csrf':self.token(),'kind':'free_shipping','min_items':'3',
+            'unlimited':'1','starts_at':start,'expires_at':expiry})
+        self.assertEqual(updated.status_code,302)
+        with store.db() as conn:
+            code=conn.execute("SELECT * FROM promo_codes WHERE code='SHIP30'").fetchone()
+            self.assertEqual((code['kind'],code['amount_piastres'],code['min_items'],code['max_uses']),
+                             ('free_shipping',0,3,None))
+
     def test_expires_and_usage_claim_is_atomic_even_at_zero_stock(self):
         now=int(time.time())
         with store.db() as conn:
