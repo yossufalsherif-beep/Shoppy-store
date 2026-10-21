@@ -930,7 +930,7 @@ def egypt_promo_date(value):
 @admin_only
 def admin_promo_codes():
  with db() as conn:codes=conn.execute('SELECT * FROM promo_codes ORDER BY created_at DESC,code LIMIT 200').fetchall()
- return render_template('promo_admin.html',codes=codes,now_epoch=int(time.time()))
+ return render_template('promo_admin.html',codes=codes,now_epoch=int(time.time()),kind_labels=KIND_LABELS)
 
 
 def egypt_datetime_epoch(value):
@@ -942,18 +942,32 @@ def egypt_datetime_epoch(value):
   raise PromoError('صيغة التاريخ والوقت غير صحيحة.') from None
 
 
+def read_promo_admin_settings():
+ """Server-enforced form rules; percentage and monetary amounts never mixed."""
+ kind=request.form.get('kind','percent').strip()
+ percent=int(request.form.get('percent','0') or 0) if kind=='percent' else 0
+ amount=(parse_money(request.form.get('amount_egp','')) if kind in ('fixed_order','fixed_item','shipping_amount') else 0)
+ minimum=int(request.form.get('min_items','1') or 1)
+ maximum=(int(request.form.get('max_discounted_items','')) if kind=='fixed_item' and
+          request.form.get('max_discounted_items','').strip() else None)
+ max_uses=None if request.form.get('unlimited')=='1' else int(request.form.get('max_uses',''))
+ starts=egypt_datetime_epoch(request.form.get('starts_at',''))
+ ends=egypt_datetime_epoch(request.form.get('expires_at',''))
+ validate_settings(kind,percent,amount,minimum,maximum,max_uses,starts,ends)
+ return kind,percent,amount,minimum,maximum,max_uses,starts,ends
+
+
 @app.post('/admin/promo-codes/create')
 @admin_only
 def admin_create_promo():
  try:
-  percentage=int(request.form.get('percent',''))
-  uses=None if request.form.get('unlimited')=='1' else int(request.form.get('max_uses',''))
-  start=egypt_datetime_epoch(request.form.get('starts_at',''))
-  end=egypt_datetime_epoch(request.form.get('expires_at',''))
-  with db() as conn:create_code(conn,request.form.get('code',''),percentage,uses,start,end)
+  kind,percent,amount,minimum,maximum,uses,start,end=read_promo_admin_settings()
+  with db() as conn:
+   create_code(conn,request.form.get('code',''),percent,uses,start,end,
+               kind=kind,amount_piastres=amount,min_items=minimum,max_discounted_items=maximum)
   flash('تم إنشاء البرومو كود.')
  except (PromoError,ValueError) as exc:
-  flash(str(exc) if isinstance(exc,PromoError) else 'راجع نسبة الخصم وعدد الاستخدامات.')
+  flash(str(exc) if isinstance(exc,PromoError) else 'راجع نوع الخصم والمبلغ وعدد القطع والتواريخ.')
  return redirect('/admin/promo-codes')
 
 
@@ -975,19 +989,15 @@ def admin_toggle_promo(code):
 def admin_edit_promo(code):
  try:
   code=normalize_code(code)
-  percent=int(request.form.get('percent',''))
-  limit=None if request.form.get('unlimited')=='1' else int(request.form.get('max_uses',''))
-  starts=egypt_datetime_epoch(request.form.get('starts_at',''))
-  expires=egypt_datetime_epoch(request.form.get('expires_at',''))
-  if not 1<=percent<=100 or (limit is not None and not 1<=limit<=10000000) or expires<=starts or expires<=int(time.time()):
-   raise PromoError('راجع نسبة الخصم وعدد الاستخدامات وتواريخ الصلاحية.')
+  kind,percent,amount,minimum,maximum,limit,starts,expires=read_promo_admin_settings()
   with db() as conn:
    row=conn.execute('SELECT used_count FROM promo_codes WHERE code=?',(code,)).fetchone()
    if not row:abort(404)
    if limit is not None and limit<row['used_count']:
     raise PromoError('الحد الجديد ماينفعش يكون أقل من عدد الاستخدامات السابقة.')
-   conn.execute('UPDATE promo_codes SET percent=?,max_uses=?,starts_at=?,expires_at=? WHERE code=?',
-                (percent,limit,starts,expires,code))
+   conn.execute("""UPDATE promo_codes SET kind=?,percent=?,amount_piastres=?,min_items=?,
+                  max_discounted_items=?,max_uses=?,starts_at=?,expires_at=? WHERE code=?""",
+                (kind,percent,amount,minimum,maximum,limit,starts,expires,code))
   flash('تم تعديل البرومو كود.')
  except (PromoError,ValueError) as exc:
   flash(str(exc) if isinstance(exc,PromoError) else 'راجع القيم المدخلة.')
