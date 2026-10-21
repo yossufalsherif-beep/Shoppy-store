@@ -419,15 +419,27 @@ def apply_customer_promo():
  action=request.form.get('action','apply')
  dest=request.form.get('return_to','/cart')
  if dest not in ('/cart','/checkout','/promo-code'):dest='/cart'
+ wants_json='application/json' in request.headers.get('Accept','')
  if action=='remove':
   session.pop('promo_code',None)
-  flash('تم إزالة كود الخصم.')
+  message='تم إزالة كود الخصم.'
+  if wants_json:return jsonify(ok=True,message=message,promo_state=None)
+  flash(message)
+  return redirect(dest)
+ if action!='apply':
+  message='عملية كود الخصم غير صحيحة.'
+  if wants_json:return jsonify(ok=False,message=message),400
+  flash(message)
   return redirect(dest)
  try:
   with db() as conn:promo=get_active_code(conn,request.form.get('promo_code',''))
   session['promo_code']=promo['code']
-  flash('تم إضافة كود الخصم. هنتأكد من قيمته وهامش الربح قبل تأكيد الطلب.')
- except PromoError as exc:flash(str(exc))
+  message='تم تطبيق كود الخصم. هيتحسب الإجمالي الجديد بعد التوصيل.'
+  if wants_json:return jsonify(ok=True,message=message,promo_state=cart_promo_state())
+  flash(message)
+ except PromoError as exc:
+  if wants_json:return jsonify(ok=False,message=str(exc),promo_state=cart_promo_state()),422
+  flash(str(exc))
  return redirect(dest)
 
 
@@ -959,6 +971,13 @@ def read_promo_admin_settings():
  return kind,percent,amount,minimum,maximum,max_uses,starts,ends
 
 
+def promo_admin_response(message,*,error=False):
+ if 'application/json' in request.headers.get('Accept',''):
+  return jsonify(ok=not error,message=message),(422 if error else 200)
+ flash(message)
+ return redirect('/admin/promo-codes')
+
+
 @app.post('/admin/promo-codes/create')
 @admin_only
 def admin_create_promo():
@@ -967,10 +986,9 @@ def admin_create_promo():
   with db() as conn:
    create_code(conn,request.form.get('code',''),percent,uses,start,end,
                kind=kind,amount_piastres=amount,min_items=minimum,max_discounted_items=maximum)
-  flash('تم إنشاء البرومو كود.')
+  return promo_admin_response('تم إنشاء كود الخصم بنجاح.')
  except (PromoError,ValueError) as exc:
-  flash(str(exc) if isinstance(exc,PromoError) else 'راجع نوع الخصم والمبلغ وعدد القطع والتواريخ.')
- return redirect('/admin/promo-codes')
+  return promo_admin_response(str(exc) if isinstance(exc,PromoError) else 'راجع نوع الخصم والمبلغ وعدد القطع والتواريخ.',error=True)
 
 
 @app.post('/admin/promo-codes/<code>/toggle')
@@ -982,8 +1000,7 @@ def admin_toggle_promo(code):
   row=conn.execute('SELECT active FROM promo_codes WHERE code=?',(code,)).fetchone()
   if row is None:abort(404)
   conn.execute('UPDATE promo_codes SET active=? WHERE code=?',(0 if row['active'] else 1,code))
- flash('تم تحديث حالة كود الخصم.')
- return redirect('/admin/promo-codes')
+ return promo_admin_response('تم تحديث حالة كود الخصم.')
 
 
 @app.post('/admin/promo-codes/<code>/edit')
@@ -1000,10 +1017,9 @@ def admin_edit_promo(code):
    conn.execute("""UPDATE promo_codes SET kind=?,percent=?,amount_piastres=?,min_items=?,
                   max_discounted_items=?,max_uses=?,starts_at=?,expires_at=? WHERE code=?""",
                 (kind,percent,amount,minimum,maximum,limit,starts,expires,code))
-  flash('تم تعديل البرومو كود.')
+  return promo_admin_response('تم حفظ تعديل الكود بنجاح.')
  except (PromoError,ValueError) as exc:
-  flash(str(exc) if isinstance(exc,PromoError) else 'راجع القيم المدخلة.')
- return redirect('/admin/promo-codes')
+  return promo_admin_response(str(exc) if isinstance(exc,PromoError) else 'راجع القيم المدخلة.',error=True)
 
 
 @app.route('/admin')
