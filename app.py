@@ -533,10 +533,8 @@ def safka_shipping_cities():
 
 @app.route('/checkout',methods=['GET','POST'])
 def checkout():
- if not current_user():
-  session['checkout_after_login']=True
-  flash('سجل دخولك أو أنشئ حسابًا لتكمل بيانات الاستلام وتتابع الطلب.')
-  return redirect('/login')
+ # Guest checkout: identity is optional; contact/delivery details are required.
+ # Orders retain a nullable user_id and guests receive session-scoped confirmation.
  rows=cart_data()
  if not rows:return redirect('/cart')
  if not session.get('checkout_key'):session['checkout_key']=secrets.token_urlsafe(24)
@@ -568,7 +566,10 @@ def checkout():
    with db() as c:
     c.execute('BEGIN IMMEDIATE')
     existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
-    if existing:return redirect('/order/success/'+existing['reference'])
+    if existing:
+     refs=session.setdefault('my_order_refs',[])
+     if existing['reference'] not in refs:refs.append(existing['reference'])
+     return redirect('/order/success/'+existing['reference'])
     if mixed_cart:raise ValueError('المنتجات دي تحتاج طلبات منفصلة؛ راجع السلة')
     rate=(quote_safka_shipping if supplier_cart else shipping_quote)(c,gov,city,area)
     if rate is None:raise ValueError('الشحن غير متاح للعنوان المحدد حاليًا. اختر منطقة مدعومة.')
@@ -612,6 +613,8 @@ def checkout():
        promo_code,promo['percent'],promo_discount,promo_shipping_discount,promo['kind'],promo['value'],promo['min_items'],promo['max_items']))
     if cur.rowcount==0:
      existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
+     refs=session.setdefault('my_order_refs',[])
+     if existing['reference'] not in refs:refs.append(existing['reference'])
      return redirect('/order/success/'+existing['reference'])
     if promo_code:consume_code(c,promo_code)
     for p,q,choices in fresh:
@@ -656,12 +659,14 @@ def checkout():
 
 @app.route('/order/success/<ref>')
 def order_success(ref):
- if not current_user():abort(404)
  with db() as c:
   order=c.execute('SELECT reference,total,shipping_fee,user_id,id,promo_code,promo_percent,promo_discount,promo_shipping_discount FROM orders WHERE reference=?',(ref,)).fetchone()
   if not order:abort(404)
   user=current_user()
-  if not user or order['user_id']!=user['id']:abort(403)
+  owned=bool(user and order['user_id']==user['id'])
+  # Possession of a reference URL alone must never authorize access.
+  guest_session=ref in session.get('my_order_refs',[])
+  if not (owned or guest_session):abort(404)
   supplier=c.execute('SELECT status FROM safka_order_outbox WHERE order_id=?',(order['id'],)).fetchone()
  return render_template('success.html',ref=ref,order=order,supplier=supplier)
 
