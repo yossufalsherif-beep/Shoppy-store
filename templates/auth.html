@@ -8,6 +8,7 @@
 <form method="post" action="/auth/{{provider}}/start"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline btn-wide social-button social-{{provider}}" {% if not social_providers.get(provider) %}disabled title="سيكون متاحًا بعد اكتمال التفعيل"{% endif %}>{% if provider=='facebook' %}<span class="facebook-mark" aria-hidden="true">f</span>{% endif %}المتابعة باستخدام {{label}}{% if not social_providers.get(provider) %} <small>غير مفعّل بعد</small>{% endif %}</button></form>
 {% endfor %}</div><div class="auth-divider">أو استخدم البريد الإلكتروني</div>
 <form method="post" class="auth-form"><input type="hidden" name="csrf" value="{{csrf}}">
+{% if mode=='register' %}<label>رقم الموبايل المصري (للتواصل بخصوص الطلبات)<input type="tel" name="phone" inputmode="tel" autocomplete="tel-national" pattern="01[0125][0-9]{8}" maxlength="11" required placeholder="01xxxxxxxxx"></label>{% endif %}
 <label>البريد الإلكتروني<input type="email" name="email" autocomplete="email" placeholder="you@example.com" required></label>
 <div class="password-field">
  <label for="auth-password">كلمة المرور</label>
@@ -20,6 +21,6 @@
  </div>
 </div>
 <button class="btn btn-dark btn-wide">{{'إنشاء حساب' if mode=='register' else 'تسجيل الدخول'}} ←</button></form>
-<div class="guest-browse"><p>تقدر تتصفح كل المنتجات من غير حساب. إتمام الطلب ومتابعته يحتاجان تسجيل الدخول.</p><a class="btn btn-outline btn-wide" href="/">تصفح المتجر بدون تسجيل دخول ←</a></div>
+<div class="guest-browse"><p>تقدر تتصفح كل المنتجات من غير حساب. إتمام الشراء متاح بدون حساب. إنشاء حساب اختياري لحفظ المفضلة والتقييمات والطلبات المرتبطة بالحساب.</p><a class="btn btn-outline btn-wide" href="/">تصفح المتجر بدون تسجيل دخول ←</a></div>
 <p><a class="text-link" href="{{'/login' if mode=='register' else '/register'}}">{{'عندك حساب؟ سجل دخول' if mode=='register' else 'معندكش حساب؟ أنشئ حساب'}}</a></p></div>
 {% endblock %}
