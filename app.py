@@ -19,6 +19,7 @@ from promo_codes import (init_promo_schema, create_code, get_active_code, calcul
                          quote_promo, validate_settings, KIND_LABELS,
                          consume_code, normalize_code, PromoError)
 from shopy_notify import init_notification_store, queue_new_order, configured_recipients
+from whatsapp_support import init_support_store, register_support, prepare_reply as prepare_support_reply
 from safka_bridge import init_safka_schema, quote_safka_shipping, shipping_pricing_document_id, queue_safka_order, supplier_stock_ready, migrate_supplier_product_slugs, CatalogValidationError
 from safka_dry_run import prepare_dry_run
 from safka_live_orders import (canonical_order, load_contract, build_payload,
@@ -88,6 +89,7 @@ CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY,order_id INTEGER N
 CREATE TABLE IF NOT EXISTS shipping_zones (id INTEGER PRIMARY KEY,governorate TEXT NOT NULL,city TEXT NOT NULL DEFAULT '',area TEXT NOT NULL DEFAULT '',fee INTEGER NOT NULL CHECK(fee>=0),supplier_cost INTEGER, UNIQUE(governorate,city,area));
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(active,category);
 CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);''')
+  init_support_store(c)
   init_safka_schema(c)
   migrate_supplier_product_slugs(c)
   c.executescript("""CREATE TABLE IF NOT EXISTS favorites(
@@ -179,9 +181,9 @@ def noindex_staging(resp):
 @app.before_request
 def protect():
  if request.method in ('POST','PUT','PATCH','DELETE'):
-  # Provider POSTs have no browser session/CSRF. Their separate opaque URL
-  # tokens must be verified inside the webhook handler before accepting data.
-  if request.path.startswith('/integrations/safka/hook/'):
+  # Provider POSTs have no browser CSRF session. Safka URL tokens and the
+  # WhatsApp HMAC signature are verified by their exact webhook handlers.
+  if request.path.startswith('/integrations/safka/hook/') or request.path=='/webhooks/whatsapp':
    return
   if not hmac.compare_digest(request.form.get('csrf',''),session.get('csrf','_')):abort(400,'Invalid CSRF token')
 def admin_only(fn):
@@ -1806,6 +1808,13 @@ def sitemap():
 def health():return jsonify(ok=True)
 @app.errorhandler(413)
 def too_large(e):return 'الملفات أكبر من الحد المسموح (50MB للطلب)',413
+
+def customer_support_reply(text):
+ with db() as conn:
+  products=conn.execute('SELECT * FROM products WHERE active=1').fetchall()
+ return prepare_support_reply(text,products,displayed_product_price,supplier_stock_ready)
+
+register_support(app,db,admin_only,customer_support_reply)
 
 if __name__=='__main__':
  init();app.run(host='127.0.0.1',port=5000,debug=False)
