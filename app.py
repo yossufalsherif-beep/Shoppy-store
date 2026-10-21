@@ -403,7 +403,9 @@ def cart_promo_state():
   try:
    row=get_active_code(conn,code)
    return {'code':row['code'],'percent':row['percent'],'kind':row['kind'],
-           'kind_label':KIND_LABELS.get(row['kind'],'خصم'),'active':True}
+           'kind_label':KIND_LABELS.get(row['kind'],'خصم'),
+           'amount_piastres':row['amount_piastres'],'min_items':row['min_items'],
+           'max_discounted_items':row['max_discounted_items'],'active':True}
   except PromoError as exc:return {'code':str(code)[:32],'percent':0,'active':False,'message':str(exc)}
 
 
@@ -644,7 +646,7 @@ def checkout():
 def order_success(ref):
  if not current_user():abort(404)
  with db() as c:
-  order=c.execute('SELECT reference,total,shipping_fee,user_id,id,promo_code,promo_percent,promo_discount FROM orders WHERE reference=?',(ref,)).fetchone()
+  order=c.execute('SELECT reference,total,shipping_fee,user_id,id,promo_code,promo_percent,promo_discount,promo_shipping_discount FROM orders WHERE reference=?',(ref,)).fetchone()
   if not order:abort(404)
   user=current_user()
   if not user or order['user_id']!=user['id']:abort(403)
