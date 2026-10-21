@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}تقرير الأرباح — Shoppy Store{% endblock %}
+{% block content %}
+<div class="page-title"><span class="eyebrow">لوحة التحكم / الحسابات</span><h1>الأرباح الفعلية والمتوقعة</h1><p>التقرير يفرق بين الطلب المسجل والمحصّل عند صفقة، ويستبعد الطلبات الملغية من توقعات الربح.</p></div>
+<section class="stats-grid" aria-label="مؤشرات الربحية">
+ <div class="stat"><span>كل الطلبات</span><strong>{{report.orders_total}}</strong></div>
+ <div class="stat"><span>طلبات ملغية أو مرتجعة</span><strong>{{report.cancelled_count}}</strong></div>
+ <div class="stat"><span>قيمة الطلبات المحصلة حسب حالة المورد</span><strong>{{money(report.collected_value)}} ج.م</strong></div>
+ <div class="stat"><span>هامش الطلبات المحصلة ذات التكلفة المعلومة</span><strong>{{money(report.collected_margin_known)}} ج.م</strong><small>قبل الإعلان والتشغيل والمرتجعات وأي خصومات خارج الطلب</small></div>
+ <div class="stat"><span>هامش متوقع للطلبات غير المحصلة (تكاليف معلومة فقط)</span><strong>{{money(report.pending_margin_known)}} ج.م</strong><small>ليس مبلغًا محصلًا أو ربحًا فعليًا</small></div>
+ <div class="stat"><span>طلبات تحتاج تكلفة مكتملة</span><strong>{{report.collected_missing_costs + report.pending_missing_costs}}</strong><small>لا نحسب الطلب الناقص تكلفته ضمن هامش الربح</small></div>
+</section>
+<section class="admin-section panel">
+ <h2>مراحل الطلبات حسب تحديثات صفقة</h2>
+ <div class="table-wrap"><table class="table"><thead><tr><th>حالة المورد</th><th>الطلبات</th><th>قيمتها الإجمالية</th></tr></thead>
+ <tbody>{% for stage in stages %}<tr><td>{{supplier_labels.get(stage.supplier_status,stage.supplier_status)}}</td><td>{{stage.orders}}</td><td>{{money(stage.value)}} ج.م</td></tr>{% else %}<tr><td colspan="3">لا توجد طلبات حتى الآن</td></tr>{% endfor %}</tbody></table></div>
+</section>
+<section class="admin-section panel">
+ <h2>كيف تُقرأ الأرقام؟</h2>
+ <p>«محصّل» يعني أن حالة صفقة وصلت إلى <strong>تم التحصيل</strong>، وليس مجرد تأكيد الطلب أو إرساله. هامش الطلب = إجمالي ما يدفعه العميل ناقص تكلفة المنتجات من المورد وتكلفة الشحن المسجلة.</p>
+ <p>هذا <strong>ليس صافي الربح النهائي</strong>: لم نخصم بعد مصروف الإعلانات، التشغيل، المرتجعات، رسوم الرفض أو أي تسويات خارجية لم تُسجَّل في المتجر. الطلب الذي تنقصه تكلفة لا يُفترض أنه مربح.</p>
+ <a href="/admin" class="btn btn-outline">الرجوع للوحة الإدارة</a>
+</section>
+{% endblock %}
