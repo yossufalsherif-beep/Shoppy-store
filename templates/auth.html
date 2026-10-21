@@ -2,7 +2,7 @@
 {% block title %}{{'إنشاء حساب' if mode=='register' else 'تسجيل الدخول'}} — Shoppy Store{% endblock %}
 {% block content %}
 <div class="auth-panel"><span class="eyebrow">أهلًا بيك</span><h1>{{'إنشاء حساب جديد' if mode=='register' else 'تسجيل الدخول'}}</h1>
-<p>{{'سجل بياناتك عشان تعرف تتابع طلباتك من حسابك.' if mode=='register' else 'ادخل بيانات حسابك لمتابعة طلباتك وإتمام الشراء.'}}</p>
+<p>{{'سجّل حسابًا اختياريًا لحفظ مفضلتك وكتابة تقييمات للمنتجات. الشراء متاح بدون حساب.' if mode=='register' else 'ادخل بيانات حسابك لمتابعة طلباتك وإتمام الشراء.'}}</p>
 <div class="social-login" aria-label="طرق تسجيل الدخول">
 {% for provider,label in [('google','Google'),('facebook','Facebook')] %}
 <form method="post" action="/auth/{{provider}}/start"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline btn-wide social-button social-{{provider}}" {% if not social_providers.get(provider) %}disabled title="سيكون متاحًا بعد اكتمال التفعيل"{% endif %}>{% if provider=='facebook' %}<span class="facebook-mark" aria-hidden="true">f</span>{% endif %}المتابعة باستخدام {{label}}{% if not social_providers.get(provider) %} <small>غير مفعّل بعد</small>{% endif %}</button></form>
