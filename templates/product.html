@@ -4,6 +4,23 @@
 <link rel="canonical" href="{{request.url_root.rstrip('/')}}/products/{{p.slug}}">
 <meta property="og:title" content="{{p.title}}">
 <meta property="og:description" content="{{(p.description|product_description)[:155]}}">
+<meta property="og:type" content="product">
+{% set seo_image=(p.image if p.image.startswith('https://') else request.url_root.rstrip('/') ~ p.image) if p.image else '' %}
+{% if seo_image %}<meta property="og:image" content="{{seo_image}}">{% endif %}
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">{{{
+ '@context':'https://schema.org',
+ '@type':'Product',
+ 'name':p.title,
+ 'description':(p.description|product_description) if p.description else p.title,
+ 'image':[seo_image] if seo_image else [],
+ 'offers':{
+   '@type':'Offer',
+   'priceCurrency':'EGP',
+   'price':'%.2f'|format(shown_price(p)/100),
+   'url':request.url_root.rstrip('/') ~ '/products/' ~ p.slug
+ }
+}|tojson}}</script>
 {% endblock %}
 {% block content %}
 <div class="breadcrumbs"><a href="/">الرئيسية</a><span>›</span><a href="/#catalog">المنتجات</a><span>›</span><span>{{p.title}}</span></div>
@@ -71,7 +88,7 @@
    </button>
    <a href="/favorites" class="text-link">قائمة المفضلة ←</a>
   </form>
-  <div class="product-help"><span>✓ تكلفة التوصيل والعروض تظهر قبل تأكيد الطلب</span><span>✓ الدفع عند الاستلام</span></div>
+  <div class="product-help"><span>✓ تكلفة التوصيل والعروض تظهر قبل تأكيد الطلب</span><span>✓ الدفع عند الاستلام</span><span>✓ شركة الشحن تتواصل لتأكيد الطلب قبل التسليم؛ الموعد النهائي يتحدد بعد التأكيد.</span><span>✓ للتواصل بشأن الاستبدال أو الاسترجاع، استخدم قنوات الدعم الموضحة في المتجر.</span></div>
  </div>
 </section>
 <section id="reviews" class="catalog-section reviews-section" aria-labelledby="reviews-title">
