@@ -2,6 +2,7 @@
 {% block title %}طلباتي — Shoppy Store{% endblock %}
 {% block content %}
 <div class="page-title"><span class="eyebrow">حسابي</span><h1>طلباتي</h1><p>تابع حالة طلباتك وتفاصيل كل طلب من مكان واحد.</p></div>
+{% if user.role=='customer' %}<section class="panel account-phone"><h2>رقم التواصل</h2><p class="fine-print">رقم الاتصال المسجل في حسابك لا يغني عن مراجعة بيانات كل طلب. لا نستخدمه لإثبات الهوية.</p><form method="post" action="/account/phone" class="admin-form"><input type="hidden" name="csrf" value="{{csrf}}"><label>رقم الموبايل المصري<input type="tel" name="phone" inputmode="tel" autocomplete="tel-national" required pattern="01[0125][0-9]{8}" maxlength="11" value="{{user.phone or ''}}" placeholder="01xxxxxxxxx"></label><button class="btn btn-outline">حفظ الرقم</button></form></section>{% endif %}
 <div class="panel">
  <h2>سجل الطلبات</h2>
  {% for o in orders %}
