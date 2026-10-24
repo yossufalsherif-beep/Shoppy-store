@@ -876,12 +876,27 @@ def logout():session.clear();return redirect('/')
 def account():
  u=current_user()
  if not u:return redirect('/login')
+ if u['role']=='admin':return redirect('/admin')
  with db() as c:
-  orders,pager=paginate(c,'SELECT * FROM orders WHERE user_id=?','SELECT COUNT(*) FROM orders WHERE user_id=?',[u['id']],'id DESC',request.args.get('page'),20)
+  orders,pager=paginate(c,'SELECT * FROM orders WHERE user_id=?','SELECT COUNT(*) FROM orders WHERE user_id=?',[u['id']],'id DESC',request.args.get('page'),10,'page','orders')
   ids=[o['id'] for o in orders]
   details=grouped(c,'order_items','order_id',ids,order='id')
   supplier_states={oid:rows[0] for oid,rows in grouped(c,'safka_order_outbox','order_id',ids).items() if rows}
- return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states,pager=pager)
+  order_stats=c.execute("""SELECT COUNT(*) AS total,
+        COALESCE(SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END),0) AS cancelled,
+        COALESCE(SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END),0) AS delivered
+        FROM orders WHERE user_id=?""",(u['id'],)).fetchone()
+  favorite_count=c.execute('SELECT COUNT(*) FROM favorites WHERE user_id=?',(u['id'],)).fetchone()[0]
+  review_count=c.execute('SELECT COUNT(*) FROM product_reviews WHERE user_id=?',(u['id'],)).fetchone()[0]
+  favorite_previews=c.execute("""SELECT p.title,p.slug,p.image
+        FROM favorites f JOIN products p ON p.id=f.product_id
+        WHERE f.user_id=? AND (p.active=1 OR (p.source='safka' AND p.supplier_listed=1))
+        ORDER BY f.created_at DESC,p.id DESC LIMIT 3""",(u['id'],)).fetchall()
+  linked_providers={r['provider'] for r in c.execute(
+      'SELECT provider FROM social_identities WHERE user_id=?',(u['id'],)).fetchall()}
+ return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states,
+    pager=pager,order_stats=order_stats,favorite_count=favorite_count,review_count=review_count,
+    favorite_previews=favorite_previews,linked_providers=linked_providers,google_enabled=configured_providers().get('google',False))
 
 @app.post('/account/phone')
 def customer_phone_update():
