@@ -412,3 +412,11 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 }
 @media(max-width:420px){.account-phone-input-row{flex-wrap:wrap}.account-phone-input-row input,.account-phone-input-row .btn{flex:1 1 100%}.account-favorites-head{flex-wrap:wrap}.account-welcome-copy{flex:1 1 calc(100% - 65px)}}
 @media(prefers-reduced-motion:reduce){.google-signin,.account-quick-actions a,.account-help-grid a,.account-expand{transition:none}}
+
+.account-reviews-preview{border-top:1px solid var(--stroke);margin-top:18px;padding-top:15px}
+.account-reviews-preview h3{font-size:14px;margin:0 0 10px}
+.account-review-preview{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 10px;border-radius:11px;background:#f6fafa;margin:7px 0}
+.account-review-preview>span:first-child{flex:1;min-width:0}
+.account-review-preview strong{font-size:12px;display:block}
+.account-review-preview small{font-size:11px;color:#75878b;display:block;overflow-wrap:anywhere;margin-top:3px}
+.account-review-score{font-size:12px;font-weight:800;white-space:nowrap;padding:5px 9px;background:#fff7e4;color:#94621c;border-radius:10px}
