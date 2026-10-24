@@ -1,14 +1,25 @@
-{% extends 'base.html' %}{% block title %}إعداد تسجيل الدخول — Shoppy Store{% endblock %}{% block content %}<div class="social-setup"><div class="page-title"><h1>تسجيل Google وFacebook</h1><a href="/admin">العودة للوحة التحكم</a></div>
-<section class="panel"><h2>حالة التشغيل</h2><p>اتصال المصادقة: {{'جاهز' if auth_configured else 'يحتاج إعداد متغيرات التشغيل'}}</p>{% for provider,label in [('google','Google'),('facebook','Facebook')] %}<p>{{label}}: {{'الإعداد موجود عند مزود المصادقة' if external.get(provider) else 'إعداد المزود لم يكتمل'}} — {{'مفعّل بالموقع' if social_providers.get(provider) else 'غير مفعّل بالموقع'}}</p>{% endfor %}<p>تفعيل الأزرار لا يكفي: يجب تجربة دخول حقيقي بحسابك بعد إعداد المزود.</p></section>
-<section class="panel"><h2>خطوات Google</h2><ol><li>في <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener noreferrer">Google Auth Platform</a> أنشئ OAuth Client من نوع Web application.</li><li>أضف أصل الموقع <code>https://shoppy-store-one.vercel.app</code>.</li><li>أضف Redirect URI: <code>https://kvfeotnvmpdbjdzvnekc.supabase.co/auth/v1/callback</code>.</li><li>ضع Client ID وClient Secret داخل <a href="https://supabase.com/dashboard/project/kvfeotnvmpdbjdzvnekc/auth/providers" target="_blank" rel="noopener noreferrer">إعدادات Google في Supabase</a> وفعّل المزود. لا ترسل السر في المحادثة.</li><li>في Auth URL Configuration اجعل Site URL رابط المتجر، وأضف مسار العودة <code>https://shoppy-store-one.vercel.app/auth/callback**</code> إلى Redirect URLs.</li><li>فعّل <code>SHOPY_AUTH_GOOGLE_ENABLED=1</code> في بيئة الإنتاج ثم أعد النشر وجرب الدخول.</li></ol></section>
-
-<section class="panel"><h2>خطوات Facebook</h2>
-<ol>
-<li>افتح <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">Meta for Developers</a> وأنشئ تطبيقًا يدعم Facebook Login.</li>
-<li>في إعدادات Facebook Login، أضف <strong>Valid OAuth Redirect URI</strong> التالي بالضبط: <code>https://kvfeotnvmpdbjdzvnekc.supabase.co/auth/v1/callback</code>.</li>
-<li>اسمح بصلاحيتي <code>email</code> و<code>public_profile</code> (الإيميل مطلوب لإنشاء حساب المتجر).</li>
-<li>من إعدادات التطبيق انسخ <strong>App ID</strong> و<strong>App Secret</strong> إلى <a href="https://supabase.com/dashboard/project/kvfeotnvmpdbjdzvnekc/auth/providers" target="_blank" rel="noopener noreferrer">Supabase → Authentication → Providers → Facebook</a> وفعّل Facebook واحفظ الإعدادات. لا تشارك App Secret في المحادثات أو الشيفرة.</li>
-<li>تأكد من وجود <code>https://shoppy-store-one.vercel.app/auth/callback**</code> في <a href="https://supabase.com/dashboard/project/kvfeotnvmpdbjdzvnekc/auth/url-configuration" target="_blank" rel="noopener noreferrer">Supabase Redirect URLs</a>.</li>
-<li>بعد اكتمال الربط، أضف <code>SHOPY_AUTH_FACEBOOK_ENABLED=1</code> لإعدادات Vercel Production وأعد النشر ثم اختبر دخولًا حقيقيًا. قد يلزم نقل تطبيق Facebook إلى الوضع Live ومراجعة الأذونات قبل إتاحته للعامة.</li>
-</ol></section>
-</div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}إعداد تسجيل Google — Shoppy Store{% endblock %}
+{% block content %}
+<div class="social-setup">
+ <div class="page-title"><span class="eyebrow">لوحة الإدارة / تسجيل الدخول</span><h1>إعداد تسجيل Google</h1><p>واجهة تسجيل العملاء تعرض Google فقط بجانب البريد الإلكتروني وكلمة المرور.</p><a class="btn btn-outline" href="/admin">الرجوع للوحة التحكم</a></div>
+ <section class="panel">
+  <h2>حالة Google</h2>
+  <p>اتصال المصادقة: <strong>{{'جاهز' if auth_configured else 'يحتاج إعداد متغيرات التشغيل'}}</strong>.</p>
+  <p>مزوّد Google: <strong>{{'تم ضبطه لدى المزود' if external.get('google') else 'الإعدادات غير مكتملة أو لم تُفحص'}}</strong>.</p>
+  <p>زر Google بالمتجر: <strong>{{'مفعّل' if social_providers.get('google') else 'غير مفعّل'}}</strong>.</p>
+  <p class="fine-print">وجود الإعدادات وحده لا يثبت نجاح تسجيل الدخول؛ لازم تجربة فعلية بحساب Google بعد إعداد المزود.</p>
+ </section>
+ <section class="panel">
+  <h2>خطوات ربط Google</h2>
+  <ol>
+   <li>افتح <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener noreferrer">Google Auth Platform</a> وأنشئ OAuth Client من نوع Web application.</li>
+   <li>أضف رابط موقعك: <code>https://shoppy-store-one.vercel.app</code>.</li>
+   <li>استخدم عنوان العودة إلى Supabase: <code>https://kvfeotnvmpdbjdzvnekc.supabase.co/auth/v1/callback</code>.</li>
+   <li>ضع Client ID وClient Secret في <a href="https://supabase.com/dashboard/project/kvfeotnvmpdbjdzvnekc/auth/providers" target="_blank" rel="noopener noreferrer">Supabase Authentication → Providers → Google</a>. احتفظ بالمفاتيح سرية.</li>
+   <li>اضبط Site URL ورابط العودة <code>https://shoppy-store-one.vercel.app/auth/callback**</code> في إعدادات Redirect URLs.</li>
+   <li>اضبط متغير الإنتاج <code>SHOPY_AUTH_GOOGLE_ENABLED=1</code> ثم اختبر الدخول من صفحة العملاء.</li>
+  </ol>
+ </section>
+</div>
+{% endblock %}

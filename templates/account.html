@@ -1,46 +1,201 @@
 {% extends 'base.html' %}
-{% block title %}طلباتي — Shoppy Store{% endblock %}
+{% block title %}حسابي — Shoppy Store{% endblock %}
 {% block content %}
-<div class="page-title"><span class="eyebrow">حسابي</span><h1>طلباتي</h1><p>تابع حالة طلباتك وتفاصيل كل طلب من مكان واحد.</p></div>
-{% if user.role=='customer' %}<section class="panel account-phone"><h2>رقم التواصل</h2><p class="fine-print">رقم الاتصال المسجل في حسابك لا يغني عن مراجعة بيانات كل طلب. لا نستخدمه لإثبات الهوية.</p><form method="post" action="/account/phone" class="admin-form"><input type="hidden" name="csrf" value="{{csrf}}"><label>رقم الموبايل المصري<input type="tel" name="phone" inputmode="tel" autocomplete="tel-national" required pattern="01[0125][0-9]{8}" maxlength="11" value="{{user.phone or ''}}" placeholder="01xxxxxxxxx"></label><button class="btn btn-outline">حفظ الرقم</button></form></section>{% endif %}
-<div class="panel">
- <h2>سجل الطلبات</h2>
- {% for o in orders %}
- <details class="manage-item account-order">
-  <summary><span><strong dir="ltr">{{o.reference}}</strong><small>{{o.created_at[:16]}} · {{money(o.total)}} ج.م</small></span><strong><span>حالة الطلب: </span>{% set provider=supplier_states.get(o.id) %}{% if provider and provider.supplier_status %}{{supplier_status_labels.get(provider.supplier_status,'قيد المتابعة')}}{% elif provider %}تم تسجيل طلبك — في انتظار تحديث الحالة{% else %}{{{'new':'تم تسجيل طلبك بنجاح','confirmed':'تم تأكيد الطلب','preparing':'جارٍ التجهيز','shipped':'خرج للتوصيل','delivered':'تم التسليم','cancelled':'تم إلغاء الطلب'}.get(o.status,'الطلب قيد المتابعة')}}{% endif %}</strong></summary>
-  <div class="manage-body">{% set provider=supplier_states.get(o.id) %}{% if provider %}<p class="supplier-state">{{'تم تسجيل طلبك بنجاح' if provider.status in ('accepted','submitted') else 'طلبك قيد المراجعة' if provider.status in ('awaiting_provider_configuration','test_sending','unknown','needs_review') else 'طلبك يحتاج متابعة — فريق الدعم يتابع حالته' if provider.status=='rejected' else 'جاري متابعة حالة الطلب'}}</p>{% endif %}{% if provider and provider.supplier_status %}<p class="fine-print">آخر تحديث لحالة طلبك: {{provider.supplier_status_updated_at[:16]}}</p>{% endif %}<p>العنوان: {{o.governorate}} — {{o.address}}</p>
-   {% for item in details.get(o.id,[]) %}<div class="summary-line"><span>{{item.title}} × {{item.quantity}}</span><strong>{{money(item.unit_price*item.quantity)}} ج.م</strong></div>{% endfor %}
-   {% if o.bundle_discount %}<div class="summary-line"><span>خصم القطع الإضافية</span><strong>− {{money(o.bundle_discount)}} ج.م</strong></div>{% endif %}
-   <div class="summary-line"><span>الشحن</span><strong>{{money(o.shipping_fee)}} ج.م</strong></div>
-   <div class="summary-line total"><span>الإجمالي عند الاستلام</span><strong>{{money(o.total)}} ج.م</strong></div>
+<div class="customer-account">
+ <section class="account-welcome" aria-labelledby="account-welcome-heading">
+  <div class="account-profile-avatar" aria-hidden="true">{{user.email[0]|upper}}</div>
+  <div class="account-welcome-copy">
+   <span class="account-eyebrow">حسابك في Shoppy Store</span>
+   <h1 id="account-welcome-heading">أهلًا بيك من جديد!</h1>
+   <p>طلباتك ومفضلتك وإعدادات حسابك، كلها في مكان واحد.</p>
+   <span class="account-email" dir="ltr">{{user.email}}</span>
   </div>
- </details>
- {% else %}<p class="subtle">لسه مفيش طلبات مسجلة على حسابك.</p><a class="btn btn-dark" href="/#catalog">تصفح المنتجات</a>{% endfor %}
+  <a class="account-start-shopping" href="/#catalog">تسوق المنتجات <span aria-hidden="true">←</span></a>
+ </section>
+
+ <div class="account-dashboard">
+  <aside class="account-navigation" aria-label="أقسام حسابك">
+   <div class="account-nav-title">القائمة الرئيسية</div>
+   <nav>
+    <a href="#overview"><span aria-hidden="true">◈</span> نظرة عامة</a>
+    <a href="#orders"><span aria-hidden="true">▤</span> طلباتي <span class="account-nav-count">{{order_stats.total}}</span></a>
+    <a href="#favorites"><span aria-hidden="true">♡</span> المفضلة والتقييمات</a>
+    <a href="#profile"><span aria-hidden="true">♙</span> بياناتي الشخصية</a>
+    <a href="#security"><span aria-hidden="true">◇</span> الأمان وإعدادات الحساب</a>
+    <a href="#help"><span aria-hidden="true">?</span> المساعدة والدعم</a>
+   </nav>
+   <form class="account-nav-logout" method="post" action="/logout">
+    <input type="hidden" name="csrf" value="{{csrf}}">
+    <button type="submit"><span aria-hidden="true">↪</span> تسجيل الخروج</button>
+   </form>
+  </aside>
+
+  <div class="account-main">
+   <section id="overview" class="account-section" aria-labelledby="overview-heading">
+    <div class="account-section-heading"><div><span class="account-eyebrow">ملخص الحساب</span><h2 id="overview-heading">نظرة عامة</h2><p>أرقام مبنية على طلباتك المسجلة على الحساب، مش على تصفحك كضيف.</p></div></div>
+    <div class="account-stat-grid">
+     <div class="account-stat"><span class="account-stat-symbol" aria-hidden="true">▤</span><span>إجمالي الطلبات</span><strong>{{order_stats.total}}</strong><small>طلب مرتبط بحسابك</small></div>
+     <div class="account-stat"><span class="account-stat-symbol" aria-hidden="true">◷</span><span>طلبات قيد المتابعة</span><strong>{{order_stats.total-order_stats.cancelled-order_stats.delivered}}</strong><small>لم تُعلّم كمسلمة أو ملغاة</small></div>
+     <div class="account-stat"><span class="account-stat-symbol" aria-hidden="true">♡</span><span>المنتجات المفضلة</span><strong>{{favorite_count}}</strong><small>محفوظة في حسابك</small></div>
+     <div class="account-stat"><span class="account-stat-symbol" aria-hidden="true">★</span><span>تقييماتك</span><strong>{{review_count}}</strong><small>تقييمات كتبتها بنفسك</small></div>
+    </div>
+    <div class="account-quick-actions">
+     <a href="/#catalog"><span class="account-quick-icon" aria-hidden="true">✦</span><span><strong>تسوق من جديد</strong><small>اكتشف المنتجات المتاحة</small></span><span aria-hidden="true">←</span></a>
+     <a href="/cart"><span class="account-quick-icon" aria-hidden="true">▣</span><span><strong>سلة التسوق</strong><small>راجع اختياراتك وكمل الطلب</small></span><span aria-hidden="true">←</span></a>
+     <a href="/promo-code"><span class="account-quick-icon" aria-hidden="true">٪</span><span><strong>كود الخصم</strong><small>استخدم الكود المتاح عندك</small></span><span aria-hidden="true">←</span></a>
+    </div>
+   </section>
+
+   <section id="orders" class="account-section" aria-labelledby="orders-heading">
+    <div class="account-section-heading"><div><span class="account-eyebrow">تتبع مشترياتك</span><h2 id="orders-heading">طلباتي</h2><p>اضغط على أي طلب علشان تشوف المنتجات والعنوان وتفاصيل السعر والشحن.</p></div><span class="account-section-counter">{{order_stats.total}} طلب</span></div>
+    {% if orders %}
+     <div class="account-orders-list">
+      {% for o in orders %}
+      {% set provider=supplier_states.get(o.id) %}
+      <details class="account-order-card">
+       <summary>
+        <span class="account-order-overview">
+         <span class="account-order-tag">طلب رقم <b dir="ltr">{{o.reference}}</b></span>
+         <small>بتاريخ {{o.created_at[:16]}}</small>
+        </span>
+        <span class="account-order-status {% if o.status=='cancelled' %}account-order-cancelled{% elif o.status=='delivered' %}account-order-delivered{% endif %}">
+         {% if o.status=='cancelled' %}تم إلغاء الطلب
+         {% elif provider and provider.supplier_status %}{{supplier_status_labels.get(provider.supplier_status,'قيد المتابعة')}}
+         {% elif o.status=='delivered' %}تم التسليم
+         {% elif o.status=='shipped' %}خرج للتوصيل
+         {% elif o.status=='preparing' %}جارٍ التجهيز
+         {% elif o.status=='confirmed' %}تم تأكيد الطلب
+         {% else %}تم تسجيل الطلب{% endif %}
+        </span>
+        <span class="account-order-total"><strong>{{money(o.total)}} ج.م</strong><small>الإجمالي</small></span>
+        <span class="account-expand" aria-hidden="true">⌄</span>
+       </summary>
+       <div class="account-order-details">
+        {% if provider %}
+        <div class="account-supplier-message">
+         <strong>متابعة الطلب</strong>
+         <p>{{'تم إرسال الطلب للمورد، ولسه بنستنى تأكيد التنفيذ والتوصيل.' if provider.status in ('accepted','submitted') else 'الطلب تحت المتابعة، وتحديثات المورد هتظهر هنا بعد وصولها.' if provider.status in ('awaiting_provider_configuration','test_sending','unknown','needs_review') else 'حالة الطلب محتاجة متابعة مع فريق الدعم.' if provider.status in ('rejected','preflight_failed') else 'جاري متابعة حالة الطلب.'}}</p>
+         {% if provider.supplier_status and provider.supplier_status_updated_at %}<small>آخر تحديث من المورد: {{provider.supplier_status_updated_at[:16]}}</small>{% endif %}
+        </div>
+        {% endif %}
+        <div class="account-order-detail-grid">
+         <div><span>اسم المستلم</span><strong>{{o.customer}}</strong></div>
+         <div><span>رقم التواصل وقت الطلب</span><strong dir="ltr">{{o.phone}}</strong></div>
+         <div class="account-order-address"><span>عنوان التوصيل</span><strong>{{o.governorate}} — {{o.address}}</strong></div>
+        </div>
+        <h3 class="account-order-items-heading">المنتجات المطلوبة</h3>
+        {% for item in details.get(o.id,[]) %}
+        <div class="account-order-item"><span>{{item.title}} <small>الكمية: {{item.quantity}}</small></span><strong>{{money(item.unit_price*item.quantity)}} ج.م</strong></div>
+        {% else %}<p class="subtle">تفاصيل المنتجات مش متاحة حاليًا؛ تقدر تتواصل مع الدعم بكود الطلب.</p>{% endfor %}
+        <div class="account-order-prices">
+         {% if o.bundle_discount %}<div><span>خصم القطع الإضافية</span><strong>− {{money(o.bundle_discount)}} ج.م</strong></div>{% endif %}
+         {% if o.promo_code %}<div><span>الكوبون المستخدم</span><strong dir="ltr">{{o.promo_code}}</strong></div>{% endif %}
+         {% if o.promo_discount %}<div><span>خصم البرومو كود على المنتجات</span><strong>− {{money(o.promo_discount)}} ج.م</strong></div>{% endif %}
+         {% if o.promo_shipping_discount %}<div><span>خصم البرومو كود على الشحن</span><strong>− {{money(o.promo_shipping_discount)}} ج.م</strong></div>{% endif %}
+         <div><span>مصاريف الشحن بعد الخصومات</span><strong>{{money(o.shipping_fee)}} ج.م</strong></div>
+         <div class="account-order-final"><span>إجمالي الطلب المسجّل</span><strong>{{money(o.total)}} ج.م</strong></div>
+        </div>
+        <p class="fine-print">الدفع عند الاستلام. ظهور الطلب هنا مش معناه إنه اتسلّم أو إن المبلغ اتحصّل.</p>
+        <a class="account-order-help" href="/#contact">عندك استفسار عن الطلب؟ تواصل مع الدعم ←</a>
+       </div>
+      </details>
+      {% endfor %}
+     </div>
+    {% else %}
+     <div class="account-empty">
+      <span aria-hidden="true">▢</span>
+      <h3>لسه مفيش طلبات مرتبطة بحسابك</h3>
+      <p>لو اشتريت كضيف قبل كده، الطلب مش هيظهر هنا تلقائيًا. وتقدر دايمًا تتسوق من غير ما تعمل حساب.</p>
+      <a class="btn btn-dark" href="/#catalog">تصفح المنتجات</a>
+     </div>
+    {% endif %}
+    {% include '_pagination.html' %}
+   </section>
+
+   <section id="favorites" class="account-section" aria-labelledby="favorites-heading">
+    <div class="account-section-heading"><div><span class="account-eyebrow">اختياراتك</span><h2 id="favorites-heading">المفضلة والتقييمات</h2><p>المنتجات اللي حفظتها والتقييمات اللي شاركتها.</p></div></div>
+    <div class="account-favorites-head"><span><strong>{{favorite_count}}</strong> منتج في المفضلة <span class="account-inline-sep">·</span> <strong>{{review_count}}</strong> تقييم</span><a href="/favorites">عرض كل المفضلة ←</a></div>
+    {% if favorite_previews %}
+     <div class="account-favorite-list">
+      {% for p in favorite_previews %}
+       <a href="/products/{{p.slug}}" class="account-favorite">
+        <span class="account-favorite-thumb">{% if p.image %}<img src="{{p.image}}" alt="" loading="lazy" width="56" height="56">{% else %}♡{% endif %}</span>
+        <span>{{p.title}}</span><span aria-hidden="true">←</span>
+       </a>
+      {% endfor %}
+     </div>
+    {% else %}<p class="account-hint">مفيش منتجات مفضلة لسه. اضغط على علامة القلب جنب أي منتج يعجبك علشان تحفظه هنا.</p>{% endif %}
+    {% if review_previews %}
+     <div class="account-reviews-preview"><h3>آخر تقييماتك</h3>
+      {% for r in review_previews %}
+       <a class="account-review-preview" href="/products/{{r.slug}}#reviews">
+        <span><strong>{{r.title}}</strong>{% if r.comment %}<small>{{r.comment[:100]}}{{'…' if r.comment|length>100 else ''}}</small>{% endif %}</span>
+        <span class="account-review-score" aria-label="تقييم {{r.rating}} من 5">★ {{r.rating}}/5</span>
+       </a>
+      {% endfor %}
+     </div>
+    {% else %}
+     <p class="account-hint">لما تكتب تقييم لأي منتج هيظهر هنا. تقدر تبدأ من صفحة المنتج بعد تسجيل الدخول.</p>
+    {% endif %}
+   </section>
+
+   <section id="profile" class="account-section" aria-labelledby="profile-heading">
+    <div class="account-section-heading"><div><span class="account-eyebrow">معلومات الحساب</span><h2 id="profile-heading">بياناتي الشخصية</h2><p>بيانات التواصل الأساسية الخاصة بحسابك، وتقدر تحدّث رقم الموبايل.</p></div></div>
+    <div class="account-profile-fields">
+     <div class="account-readonly-field"><span>البريد الإلكتروني</span><strong dir="ltr">{{user.email}}</strong><small>البريد المستخدم لتسجيل الدخول</small></div>
+     <div class="account-readonly-field"><span>طريقة تسجيل الدخول</span><strong>{{'Google مرتبط بالحساب' if 'google' in linked_providers else 'البريد الإلكتروني وكلمة المرور'}}</strong><small>الاتصال الخارجي لا يغيّر بيانات طلباتك القديمة</small></div>
+    </div>
+    <form method="post" action="/account/phone" class="account-phone-form">
+     <input type="hidden" name="csrf" value="{{csrf}}">
+     <label for="account-phone-number">رقم الموبايل الخاص بالحساب</label>
+     <div class="account-phone-input-row"><input id="account-phone-number" type="tel" name="phone" inputmode="tel" autocomplete="tel-national" required pattern="01[0125][0-9]{8}" maxlength="11" value="{{user.phone or ''}}" placeholder="01xxxxxxxxx"><button type="submit" class="btn btn-dark">حفظ الرقم</button></div>
+     <p class="fine-print">رقم الحساب مش متحقق منه برسالة SMS، وبيانات المستلم والعنوان اللي كتبتهم وقت كل طلب بيفضلوا محفوظين مع الطلب نفسه.</p>
+    </form>
+   </section>
+
+   <section id="security" class="account-section" aria-labelledby="security-heading">
+    <div class="account-section-heading"><div><span class="account-eyebrow">حماية الحساب</span><h2 id="security-heading">الأمان وإعدادات الحساب</h2><p>اختيارات بسيطة علشان تتحكم في حسابك بأمان.</p></div></div>
+    <div class="account-security-option">
+     <span class="account-security-icon" aria-hidden="true">G</span>
+     <div><strong>حساب Google</strong><p>{{'حسابك مرتبط بجوجل، وتقدر تستخدم زر Google علشان تدخل.' if 'google' in linked_providers else 'ممكن تربط حساب Google بحسابك الحالي لو الخدمة مفعّلة.'}}</p></div>
+     {% if 'google' in linked_providers %}<span class="account-connected">مرتبط ✓</span>
+     {% elif google_enabled %}<form method="post" action="/auth/google/start"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline" type="submit">ربط Google</button></form>
+     {% else %}<span class="account-unavailable">غير متاح حاليًا</span>{% endif %}
+    </div>
+    <div class="account-security-option"><span class="account-security-icon" aria-hidden="true">↪</span><div><strong>إنهاء الجلسة</strong><p>لو بتستخدم جهاز مش بتاعك، اخرج من الحساب بعد ما تخلص.</p></div><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline" type="submit">تسجيل الخروج</button></form></div>
+    <div class="account-security-option"><span class="account-security-icon" aria-hidden="true">🔒</span><div><strong>الخصوصية وبياناتك</strong><p>اقرأ سياسة الخصوصية أو تعليمات حذف بيانات حسابك.</p></div><a class="account-text-link" href="/privacy">التفاصيل ←</a></div>
+   </section>
+
+   <section id="help" class="account-section" aria-labelledby="help-heading">
+    <div class="account-section-heading"><div><span class="account-eyebrow">إحنا هنا لمساعدتك</span><h2 id="help-heading">المساعدة والدعم</h2><p>اختار الطريقة المناسبة لو عندك استفسار.</p></div></div>
+    <div class="account-help-grid">
+     <a href="/shipping-returns"><span aria-hidden="true">▣</span><strong>الشحن والاستبدال</strong><small>تفاصيل التوصيل وطلبات الاستبدال والاسترجاع</small><span aria-hidden="true">←</span></a>
+     <a href="/#contact"><span aria-hidden="true">✉</span><strong>تواصل مع الدعم</strong><small>استفسر عن منتج أو حالة طلب برقم الطلب</small><span aria-hidden="true">←</span></a>
+    </div>
+   </section>
+
+   <section id="manage-account" class="account-section account-danger-zone" aria-labelledby="account-delete-heading">
+    <div class="account-section-heading"><div><span class="account-eyebrow">خيارات إضافية</span><h2 id="account-delete-heading">إدارة الحساب</h2><p>حذف الحساب قرار نهائي، وسجلات الطلبات اللازمة للتوصيل والمحاسبة بتفضل محفوظة.</p></div></div>
+    <button type="button" class="btn btn-danger-outline" data-open-account-delete>طلب حذف الحساب</button>
+   </section>
+  </div>
+ </div>
 </div>
-{% include '_pagination.html' %}
-<form method="post" action="/logout" class="logout-row"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-outline">تسجيل الخروج</button></form>
-{% if user.role=='customer' %}
-<section class="panel account-danger-zone" aria-labelledby="account-delete-heading">
- <h2 id="account-delete-heading">إدارة الحساب</h2>
- <p class="subtle">تقدر تحذف حسابك من المتجر. الطلبات السابقة تفضل محفوظة بالقدر اللازم للتوصيل والمحاسبة، وحساب Google نفسه مش هيتحذف.</p>
- <button type="button" class="btn btn-danger-outline" data-open-account-delete>حذف الحساب</button>
-</section>
 <dialog id="account-delete-dialog" class="account-delete-dialog" aria-labelledby="confirm-delete-heading">
  <h2 id="confirm-delete-heading">متأكد إنك عايز تحذف حسابك؟</h2>
- <p>القرار ده نهائي: هيتحذف حسابك ومفضلاتك وتقييماتك من المتجر، ومش هتقدر تتابع الطلبات القديمة من حسابك. هنحتفظ بسجلات الطلبات اللازمة للتوصيل والمحاسبة.</p>
+ <p>القرار ده نهائي: حسابك ومفضلتك وتقييماتك هيتحذفوا من المتجر، ومش هتقدر تتابع الطلبات القديمة من الحساب. بنحتفظ بسجلات الطلبات اللازمة للتوصيل والمحاسبة، وحساب Google نفسه مش بيتحذف.</p>
  <form method="post" action="/account/delete">
   <input type="hidden" name="csrf" value="{{csrf}}">
   <label>اكتب البريد الإلكتروني لحسابك للتأكيد
-   <input name="confirm_email" type="email" autocomplete="off" required placeholder="your@email.com">
+   <input name="confirm_email" type="email" autocomplete="off" required placeholder="you@example.com">
   </label>
   <label>اكتب كلمة «حذف» للتأكيد
    <input name="confirm_word" required autocomplete="off" placeholder="حذف">
   </label>
   <div class="account-delete-actions">
    <button type="button" class="btn btn-safe" data-close-account-delete>إلغاء</button>
-   <button type="submit" class="btn btn-danger">حذف</button>
+   <button type="submit" class="btn btn-danger">حذف الحساب</button>
   </div>
  </form>
 </dialog>
-{% endif %}
 {% endblock %}
