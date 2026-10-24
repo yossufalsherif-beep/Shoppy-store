@@ -892,11 +892,15 @@ def account():
         FROM favorites f JOIN products p ON p.id=f.product_id
         WHERE f.user_id=? AND (p.active=1 OR (p.source='safka' AND p.supplier_listed=1))
         ORDER BY f.created_at DESC,p.id DESC LIMIT 3""",(u['id'],)).fetchall()
+  review_previews=c.execute("""SELECT r.rating,r.comment,r.updated_at,p.title,p.slug
+      FROM product_reviews r JOIN products p ON p.id=r.product_id
+      WHERE r.user_id=? ORDER BY r.updated_at DESC LIMIT 3""",(u['id'],)).fetchall()
   linked_providers={r['provider'] for r in c.execute(
       'SELECT provider FROM social_identities WHERE user_id=?',(u['id'],)).fetchall()}
  return render_template('account.html',orders=orders,details=details,supplier_states=supplier_states,
     pager=pager,order_stats=order_stats,favorite_count=favorite_count,review_count=review_count,
-    favorite_previews=favorite_previews,linked_providers=linked_providers,google_enabled=configured_providers().get('google',False))
+    favorite_previews=favorite_previews,review_previews=review_previews,
+    linked_providers=linked_providers,google_enabled=configured_providers().get('google',False))
 
 @app.post('/account/phone')
 def customer_phone_update():
