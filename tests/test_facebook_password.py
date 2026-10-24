@@ -51,14 +51,17 @@ class FacebookPasswordTests(unittest.TestCase):
                 self.assertIn('type="button" data-toggle-password',html)
                 self.assertIn('aria-pressed="false"',html)
                 self.assertIn('إظهار كلمة المرور',html)
-                self.assertIn('المتابعة باستخدام Facebook',html)
-                self.assertIn('action="/auth/facebook/start"',html)
+                self.assertIn('action="/auth/google/start"',html)
+                self.assertIn('class="google-signin"',html)
+                self.assertNotIn('المتابعة باستخدام Facebook',html)
+                self.assertNotIn('action="/auth/facebook/start"',html)
 
     def test_disabled_facebook_cannot_start_oauth(self):
         with patch.dict(os.environ,{'SHOPY_AUTH_FACEBOOK_ENABLED':'0'}):
             page=self.client.get('/login').data.decode()
-            self.assertIn('social-facebook" disabled',page)
-            self.assertIn('غير مفعّل بعد',page)
+            self.assertNotIn('social-facebook',page)
+            self.assertNotIn('action="/auth/facebook/start"',page)
+            self.assertIn('action="/auth/google/start"',page)
             with patch('social_auth.auth_request') as remote:
                 resp=self.client.post('/auth/facebook/start',data={'csrf':'facebook-test-csrf'})
             remote.assert_not_called()
