@@ -125,7 +125,18 @@
       {% endfor %}
      </div>
     {% else %}<p class="account-hint">مفيش منتجات مفضلة لسه. اضغط على علامة القلب جنب أي منتج يعجبك علشان تحفظه هنا.</p>{% endif %}
-    <p class="account-hint">تقدر تضيف تقييمك من صفحة أي منتج بعد تسجيل الدخول.</p>
+    {% if review_previews %}
+     <div class="account-reviews-preview"><h3>آخر تقييماتك</h3>
+      {% for r in review_previews %}
+       <a class="account-review-preview" href="/products/{{r.slug}}#reviews">
+        <span><strong>{{r.title}}</strong>{% if r.comment %}<small>{{r.comment[:100]}}{{'…' if r.comment|length>100 else ''}}</small>{% endif %}</span>
+        <span class="account-review-score" aria-label="تقييم {{r.rating}} من 5">★ {{r.rating}}/5</span>
+       </a>
+      {% endfor %}
+     </div>
+    {% else %}
+     <p class="account-hint">لما تكتب تقييم لأي منتج هيظهر هنا. تقدر تبدأ من صفحة المنتج بعد تسجيل الدخول.</p>
+    {% endif %>
    </section>
 
    <section id="profile" class="account-section" aria-labelledby="profile-heading">
