@@ -420,3 +420,7 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .account-review-preview strong{font-size:12px;display:block}
 .account-review-preview small{font-size:11px;color:#75878b;display:block;overflow-wrap:anywhere;margin-top:3px}
 .account-review-score{font-size:12px;font-weight:800;white-space:nowrap;padding:5px 9px;background:#fff7e4;color:#94621c;border-radius:10px}
+
+/* Review submission: visible inline error without discarding rating or comment. */
+.review-submit-error{background:#fff5ef;color:#943d1e;border:1px solid #edc2af;border-radius:12px;padding:12px 15px;font-size:13px;font-weight:650;line-height:1.8;margin:10px 0}
+.review-submit-error[hidden]{display:none}
