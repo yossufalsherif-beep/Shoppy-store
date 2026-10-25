@@ -74,7 +74,7 @@
   form.querySelector('input[name="csrf"]').value=sessionData.csrf;
   const payload=new FormData(form);
   if(submitter?.name)payload.set(submitter.name,submitter.value);
-  const response=await fetch(form.action,{method:'POST',body:payload,credentials:'same-origin',
+  const response=await fetch(form.getAttribute('action'),{method:'POST',body:payload,credentials:'same-origin',
         headers:{'Accept':rup,'X-Requested-With':'XMLHttpRequest'},redirect:'follow'});
   const ctype=response.headers.get('content-type')||'';
   if(!ctype.includes('application/json'))throw new Error(
