@@ -114,6 +114,7 @@
     <textarea id="reviewComment" name="comment" rows="4" maxlength="1200"
      placeholder="شارك تجربتك مع المنتج">{{mine.comment if mine else ''}}</textarea>
     <p id="lowRatingHelp" class="fine-print" hidden>شاركنا تجربتك في تعليق من 10 حروف على الأقل.</p>
+    <p id="reviewSubmitError" role="alert" class="review-submit-error" hidden></p>
     <button class="btn btn-dark btn-wide" type="submit">{{'حفظ تعديل التقييم' if mine else 'نشر التقييم'}} ←</button>
    </form>
    {% else %}
@@ -150,6 +151,47 @@
   low.hidden=true;
  }
  inputs.forEach(x=>x.addEventListener('change',sync));sync();
+
+ // A review tab may remain open after the customer signs in/out elsewhere.
+ // Refresh the CSRF token against the current cookie immediately before POST,
+ // keeping star/comment inputs intact and preserving server-side CSRF checks.
+ let refreshing=false;
+ let tokenReady=false;
+ const error=form.querySelector('#reviewSubmitError');
+ form.addEventListener('submit',async event=>{
+  if(tokenReady)return;
+  event.preventDefault();
+  if(refreshing)return;
+  refreshing=true;
+  error.hidden=true;
+  const submitter=event.submitter;
+  if(submitter)submitter.disabled=true;
+  try{
+   const response=await fetch('/api/csrf-token',{
+    method:'GET',credentials:'same-origin',cache:'no-store',
+    headers:{Accept:'application/json'}
+   });
+   if(!response.ok)throw new Error('session refresh failed');
+   const result=await response.json();
+   if(!result.authenticated){
+    error.textContent='جلسة تسجيل الدخول انتهت. سجّل دخولك مرة تانية علشان تنشر التقييم.';
+    error.hidden=false;
+    return;
+   }
+   if(typeof result.csrf!=='string'||result.csrf.length<16)throw new Error('invalid token');
+   form.querySelector('input[name="csrf"]').value=result.csrf;
+   tokenReady=true;
+   if(submitter)submitter.disabled=false;
+   // Request the browser's ordinary native form submit after validation.
+   form.requestSubmit(submitter||undefined);
+  }catch(_error){
+   error.textContent='تعذر تجهيز إرسال التقييم. تأكد من اتصال الإنترنت وحاول مرة تانية؛ تقييمك المكتوب لسه موجود.';
+   error.hidden=false;
+  }finally{
+   refreshing=false;
+   if(submitter)submitter.disabled=false;
+  }
+ });
 })();
 </script>
 <dialog id="productLightbox" class="lightbox"><form method="dialog"><button class="lightbox-close" aria-label="إغلاق العرض">✕</button></form><img id="lightboxImage" alt="صورة مكبرة للمنتج"></dialog>
