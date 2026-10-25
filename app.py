@@ -128,6 +128,17 @@ CREATE INDEX IF NOT EXISTS idx_orders_utm ON orders(utm_source,utm_campaign);'''
   # Never auto-seed demonstration catalog or arbitrary shipping prices.
   # User-owned records remain until an explicit backup + cleanup operation.
 def csrf():return session.setdefault('csrf',secrets.token_urlsafe(24))
+
+@app.get('/api/csrf-token')
+def fresh_csrf_token():
+ # Browser forms can outlive an auth/session rotation in another tab. Issue
+ # the token for the CURRENT same-origin cookie, never disable CSRF checking.
+ response=jsonify(csrf=csrf(),authenticated=bool(current_user()))
+ response.headers['Cache-Control']='private, no-store, max-age=0'
+ response.headers['Vary']='Cookie'
+ response.headers['X-Content-Type-Options']='nosniff'
+ return response
+
 @app.template_filter('product_description')
 def product_description(value):return clean_description(value)
 

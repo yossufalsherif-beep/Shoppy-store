@@ -101,6 +101,51 @@ class CustomerExperienceTests(unittest.TestCase):
         for internal in ('name="property_id"','name="commission"','name="supplier_product_id"'):
             self.assertNotIn(internal,html)
         self.assertIn('سعر المنتجات',html)
+    def test_review_uses_live_csrf_after_session_rotation(self):
+        self.register()
+        page=self.client.get('/products/simple-product')
+        html=page.data.decode('utf-8')
+        self.assertIn('id="productReviewForm"',html)
+        self.assertIn('name="csrf"',html)
+        self.assertIn("fetch('/api/csrf-token'",html)
+        self.assertIn('form.requestSubmit(submitter||undefined)',html)
+        self.assertIn('id="reviewSubmitError"',html)
+        with self.client.session_transaction() as sess:
+            old_token=sess['csrf']
+            sess['csrf']='rotated-csrf-test-session-value-2026'
+        # A cached tab may submit the old token, but the server must reject it.
+        rejected=self.client.post('/products/1/review',data={
+            'csrf':old_token,'slug':'simple-product','rating':'5'})
+        self.assertEqual(rejected.status_code,400)
+        with store.db() as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM product_reviews').fetchone()[0],0)
+        token_reply=self.client.get('/api/csrf-token')
+        self.assertEqual(token_reply.status_code,200)
+        self.assertEqual(token_reply.json['csrf'],'rotated-csrf-test-session-value-2026')
+        self.assertTrue(token_reply.json['authenticated'])
+        self.assertIn('no-store',token_reply.headers['Cache-Control'])
+        self.assertEqual(token_reply.headers['Vary'],'Cookie')
+        accepted=self.client.post('/products/1/review',data={
+            'csrf':token_reply.json['csrf'],'slug':'simple-product',
+            'rating':'5','comment':'تجربة إيجابية بعد تحديث الجلسة'})
+        self.assertEqual(accepted.status_code,302)
+        with store.db() as conn:
+            row=conn.execute('SELECT rating,comment FROM product_reviews').fetchone()
+            self.assertEqual(row['rating'],5)
+            self.assertIn('تحديث الجلسة',row['comment'])
+
+    def test_unauthenticated_review_token_does_not_authorize_a_review(self):
+        reply=self.client.get('/api/csrf-token')
+        self.assertEqual(reply.status_code,200)
+        self.assertFalse(reply.json['authenticated'])
+        self.assertIn('no-store',reply.headers['Cache-Control'])
+        attempted=self.client.post('/products/1/review',data={
+            'csrf':reply.json['csrf'],'slug':'simple-product','rating':'4'})
+        self.assertEqual(attempted.status_code,302)
+        self.assertEqual(attempted.location,'/login')
+        with store.db() as conn:
+            self.assertEqual(conn.execute('SELECT COUNT(*) FROM product_reviews').fetchone()[0],0)
+
     def test_review_csrf_and_escape(self):
         self.register()
         self.assertEqual(self.client.post('/products/1/review',data={
