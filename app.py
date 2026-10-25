@@ -657,7 +657,7 @@ def checkout():
     queue_new_order(c,{
      'order_ref':ref,'customer_name':name,'customer_phone':phone,
      'governorate':gov,'city':city,'area':area,
-     'products_total_piasters':total-offer['fee'],
+     'products_total_piasters':total-shipping_due,
      'shipping_piasters':shipping_due,'total_piasters':total,
      'items':[{'name':p['title'],'qty':q,'options':choices} for p,q,choices in fresh],
      'payment_method':'الدفع عند الاستلام',
