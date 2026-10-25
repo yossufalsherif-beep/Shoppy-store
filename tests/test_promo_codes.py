@@ -278,10 +278,14 @@ class PromoSupplierFlowTests(AutomaticCheckoutTests):
         self.assertEqual(data['promo_discount_piastres'],0)
         self.assertEqual(data['shipping_piastres'],6500)
         with patch('safka_auto_orders.submit_payload',
-                   return_value=OrderSubmissionOutcome('accepted','offline-id')) as send:
+                   return_value=OrderSubmissionOutcome('accepted','offline-id')) as send, \
+             patch('app.queue_new_order') as notification:
             response=self.client.post('/checkout',data=self.delivery)
         self.assertIn('/order/success/',response.location)
         send.assert_called_once()
+        notice=notification.call_args.args[1]
+        self.assertEqual(notice['products_total_piasters'],data['merchandise_total_piastres'])
+        self.assertEqual(notice['products_total_piasters']+notice['shipping_piasters'],notice['total_piasters'])
         with store.db() as conn:
             order=conn.execute('SELECT * FROM orders').fetchone()
             self.assertEqual(order['promo_kind'],'shipping_amount')

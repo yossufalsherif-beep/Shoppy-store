@@ -61,6 +61,17 @@
  }
 
  async function readJSON(form,submitter){
+  // The rendered form can outlive a session change in another tab.
+  // Refresh before the mutation; never retry an admin write after an error.
+  const sessionResponse=await fetch('/api/csrf-token',{credentials:'same-origin',cache:'no-store',
+        headers:{'Accept':rup}});
+  if(!sessionResponse.ok)throw new Error('تعذر تحديث الجلسة؛ حدّث الصفحة وحاول مرة أخرى.');
+  const sessionData=await sessionResponse.json();
+  if(typeof sessionData.csrf!=='string'||sessionData.csrf.length<16)
+   throw new Error('تعذر تحديث الجلسة؛ حدّث الصفحة وحاول مرة أخرى.');
+  if(form.dataset.asyncPromo==='admin'&&!sessionData.authenticated)
+   throw new Error('انتهت الجلسة؛ سجل الدخول مرة أخرى وجرّب.');
+  form.querySelector('input[name="csrf"]').value=sessionData.csrf;
   const payload=new FormData(form);
   if(submitter?.name)payload.set(submitter.name,submitter.value);
   const response=await fetch(form.action,{method:'POST',body:payload,credentials:'same-origin',
