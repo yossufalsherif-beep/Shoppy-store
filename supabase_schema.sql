@@ -16,7 +16,9 @@ CREATE TABLE IF NOT EXISTS products(
  supplier_product_id TEXT,supplier_product_code TEXT,supplier_stock INTEGER,
  supplier_last_sync TEXT,supplier_available INTEGER,supplier_rating REAL,
  supplier_review_count INTEGER,supplier_listed INTEGER NOT NULL DEFAULT 1,
- supplier_catalog_generation TEXT
+ supplier_catalog_generation TEXT,
+ compare_at_price BIGINT CHECK(compare_at_price IS NULL OR compare_at_price>0),
+ free_shipping INTEGER NOT NULL DEFAULT 0 CHECK(free_shipping IN (0,1))
 );
 CREATE TABLE IF NOT EXISTS shipping(
  id BIGSERIAL PRIMARY KEY,governorate TEXT UNIQUE NOT NULL,
@@ -28,7 +30,8 @@ CREATE TABLE IF NOT EXISTS orders(
  address TEXT NOT NULL,shipping_fee BIGINT NOT NULL,total BIGINT NOT NULL,
  status TEXT NOT NULL DEFAULT 'new',created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP::text),
  checkout_key TEXT,utm_source TEXT NOT NULL DEFAULT '',utm_campaign TEXT NOT NULL DEFAULT '',
- shipping_supplier_cost BIGINT, safka_shipping_pricing_document_id TEXT, safka_city_id TEXT
+ shipping_supplier_cost BIGINT, safka_shipping_pricing_document_id TEXT, safka_city_id TEXT,
+ free_shipping_applied INTEGER NOT NULL DEFAULT 0 CHECK(free_shipping_applied IN (0,1))
 );
 CREATE TABLE IF NOT EXISTS order_items(
  id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL REFERENCES orders(id),

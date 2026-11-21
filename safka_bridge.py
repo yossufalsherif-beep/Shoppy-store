@@ -539,6 +539,7 @@ def order_preview(conn, order_id):
         'promo_max_items':o['promo_max_items'] if 'promo_max_items' in o.keys() else 0,
         'bundle_offer_version':o['bundle_offer_version'] if 'bundle_offer_version' in o.keys() else 0,
         'bundle_unit_count':o['bundle_unit_count'] if 'bundle_unit_count' in o.keys() else 0,
+        'free_shipping_applied':o['free_shipping_applied'] if 'free_shipping_applied' in o.keys() else 0,
         'supplier_shipping_piastres':o['shipping_supplier_cost'],
         'customer_total_piastres':o['total'],
         'items':[{'supplier_product_id':x['supplier_product_id'],'supplier_product_code':x['supplier_product_code'],'name':x['title'],

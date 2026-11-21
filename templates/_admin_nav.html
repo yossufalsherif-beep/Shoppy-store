@@ -1,0 +1,29 @@
+{# Shared admin navigation. Links only: no form/route/CSRF behaviour lives here except the existing logout form. #}
+{% set here=request.path %}
+<aside class="admin-sidebar" aria-label="قائمة لوحة التحكم">
+ <div class="admin-sidebar-head"><strong>لوحة التحكم</strong><small>Shoppy Store</small></div>
+ <nav class="admin-nav">
+  <p class="admin-nav-group">المتجر</p>
+  <a href="/admin#overview" class="{{'is-active' if here=='/admin' else ''}}"><span aria-hidden="true">◧</span>نظرة عامة</a>
+  <a href="/admin#orders"><span aria-hidden="true">🧾</span>الطلبات</a>
+  <a href="/admin#products"><span aria-hidden="true">📦</span>المنتجات</a>
+  <a href="/admin/promo-codes" class="{{'is-active' if here.startswith('/admin/promo-codes') else ''}}"><span aria-hidden="true">🏷️</span>أكواد الخصم</a>
+  <p class="admin-nav-group">الشحن والأرباح</p>
+  <a href="/admin#shipping"><span aria-hidden="true">🚚</span>أسعار الشحن</a>
+  <a href="/admin#zones"><span aria-hidden="true">📍</span>مناطق الشحن</a>
+  <a href="/admin/pricing" class="{{'is-active' if here.startswith('/admin/pricing') else ''}}"><span aria-hidden="true">💰</span>التسعير والربح</a>
+  <a href="/admin/profit" class="{{'is-active' if here.startswith('/admin/profit') else ''}}"><span aria-hidden="true">📈</span>تقرير الأرباح</a>
+  <p class="admin-nav-group">التقارير</p>
+  <a href="/admin#analytics"><span aria-hidden="true">📊</span>التحليلات والحملات</a>
+  <a href="/admin/funnel" class="{{'is-active' if here.startswith('/admin/funnel') else ''}}"><span aria-hidden="true">🧭</span>رحلة العميل</a>
+  <p class="admin-nav-group">الربط والإعدادات</p>
+  <a href="/admin/safka-orders" class="{{'is-active' if here.startswith('/admin/safka') else ''}}"><span aria-hidden="true">🔄</span>طلبات صفقة</a>
+  <a href="/admin#integrations"><span aria-hidden="true">⚙️</span>الربط والدعم</a>
+  <a href="/admin/whatsapp-support" class="{{'is-active' if here.startswith('/admin/whatsapp') else ''}}"><span aria-hidden="true">💬</span>دعم واتساب</a>
+  <a href="/admin/social-login" class="{{'is-active' if here.startswith('/admin/social') else ''}}"><span aria-hidden="true">🔐</span>تسجيل Google وApple</a>
+ </nav>
+ <div class="admin-sidebar-foot">
+  <a class="btn btn-outline btn-small" href="/" target="_blank" rel="noopener">عرض المتجر ↗</a>
+  <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{csrf}}"><button class="btn btn-ghost btn-small" type="submit">تسجيل الخروج</button></form>
+ </div>
+</aside>

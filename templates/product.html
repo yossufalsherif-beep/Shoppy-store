@@ -26,6 +26,7 @@
 <div class="breadcrumbs"><a href="/">الرئيسية</a><span>›</span><a href="/#catalog">المنتجات</a><span>›</span><span>{{p.title}}</span></div>
 <section class="product-detail">
  <div class="gallery-area">
+ {% set badge=sale_badge(p) %}{% if badge %}<span class="sale-badge sale-badge-large" aria-hidden="true">خصم {{badge.percent}}%</span>{% endif %}
  {% set gallery=(media|selectattr('kind','equalto','image')|list)+(media|selectattr('kind','equalto','video')|list) %}
  <div class="main-photo gallery-main" id="mediaStage" aria-label="معرض صور المنتج">
   {% if gallery and gallery[0].kind=='image' %}<img id="activeImage" src="{{gallery[0].path}}" alt="{{p.title}}" loading="eager">
@@ -63,7 +64,8 @@
     <small>({{customer_rating.count}} تقييم من عملائنا)</small>
    </a>
   {% endif %}
-  <div class="price-block"><strong>{{money(shown_price(p))}} <small>ج.م</small></strong><span>{{'شحن القطعة الواحدة 50 جنيه' if bundle_active else 'السعر غير شامل الشحن'}}</span></div>
+  <div class="price-block{{' has-sale' if badge else ''}}"><strong>{{money(shown_price(p))}} <small>ج.م</small></strong>{% if badge %}<s class="compare-price" aria-label="السعر قبل الخصم {{money(badge.compare_at)}} جنيه">{{money(badge.compare_at)}} ج.م</s><span class="sale-chip">وفّر {{badge.percent}}%</span>{% endif %}<span>{{'الشحن مجاني لطلبك مع المنتج ده' if free_shipping(p) else 'شحن القطعة الواحدة 50 جنيه' if bundle_active else 'السعر غير شامل الشحن'}}</span></div>
+  {% if free_shipping(p) %}<p class="free-shipping-note"><span aria-hidden="true">🚚</span> شحن مجاني: أي طلب فيه المنتج ده توصيله علينا.</p>{% endif %}
   {% if bundle_active %}
   <aside class="mini-promo mini-promo-product" aria-label="عرض خاص عند شراء أكثر من قطعة">
    <span class="mini-promo-icon" aria-hidden="true">🎁</span>
