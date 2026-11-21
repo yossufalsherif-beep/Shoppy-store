@@ -35,7 +35,7 @@ def prepare_dry_run(conn, order_id):
             raise CatalogValidationError('Merchant price is below supplier cost: review before submission')
         items_total += item['customer_unit_price_piastres'] * item['quantity']
         supplier_items_total += cost * item['quantity']
-    try:validate_delivery_snapshot(raw,items_total,supplier_items_total,sum(x['quantity'] for x in raw['items']))
+    try:validate_delivery_snapshot(raw,items_total,supplier_items_total,sum(x['quantity'] for x in raw['items']),bundle_quantity=raw.get('bundle_eligible_quantity'))
     except ValueError as exc:raise CatalogValidationError(str(exc)) from None
     net_items_total=items_total-raw.get('bundle_discount',0)-raw.get('promo_discount',0)
     if net_items_total + buyer_ship != raw['customer_total_piastres']:

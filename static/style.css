@@ -435,6 +435,8 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .price-block.has-sale>strong{color:#c4141f}
 .price-block .compare-price{font-size:19px}
 .sale-chip{background:#fde8ea;color:#b4232e;font-weight:800;font-size:13px;border-radius:999px;padding:4px 10px}
+.offer-note{margin:10px 0 0;font-size:12px;font-weight:800;color:#b4232e;line-height:1.6}.offer-note span{color:var(--muted);font-weight:600}
+.free-shipping-note small{display:block;color:var(--muted);font-weight:600;font-size:12px;margin-top:4px}
 .free-shipping-note{background:#e9f6ee;border:1px solid #bfe3cc;color:#14613a;border-radius:10px;padding:10px 14px;font-weight:700;font-size:14px;margin:-12px 0 22px}
 .cover-cart-form{position:absolute;bottom:11px;right:11px;z-index:5;margin:0}
 .product-cover>a.cover-cart-button{position:absolute;bottom:11px;right:11px;z-index:5}
@@ -444,7 +446,7 @@ button:disabled{cursor:not-allowed;opacity:.55}.header-inner{gap:28px}.main-nav{
 .cover-cart-button:hover{background:#065e6a;transform:scale(1.06)}
 .cover-cart-button:focus-visible{outline:3px solid var(--brand-orange,#f89b35);outline-offset:3px}
 .cover-cart-button:disabled{opacity:.6;cursor:wait;transform:none}
-@media(max-width:740px){.sale-badge{font-size:13px;padding:7px 9px;top:8px;left:8px}.free-shipping-badge{top:40px;font-size:11px}.cover-cart-button{width:44px;height:44px}}
+@media(max-width:740px){.sale-badge{font-size:13px;padding:7px 9px;top:8px;left:8px}.free-shipping-badge{top:40px;font-size:11px}.product-cover:has(.sale-badge) .product-stock-badge{display:none}.product-cover:has(.sale-badge) .free-shipping-badge{top:46px;right:8px}.cover-cart-button{width:44px;height:44px}}
 @media(prefers-reduced-motion:reduce){.cover-cart-button{transition:none}.sale-badge{transform:none}}
 
 /* ===== Admin v2: sidebar shell, consistent buttons, readable tables ===== */

@@ -65,8 +65,9 @@
    </a>
   {% endif %}
   <div class="price-block{{' has-sale' if badge else ''}}"><strong>{{money(shown_price(p))}} <small>ج.م</small></strong>{% if badge %}<s class="compare-price" aria-label="السعر قبل الخصم {{money(badge.compare_at)}} جنيه">{{money(badge.compare_at)}} ج.م</s><span class="sale-chip">وفّر {{badge.percent}}%</span>{% endif %}<span>{{'الشحن مجاني لطلبك مع المنتج ده' if free_shipping(p) else 'شحن القطعة الواحدة 50 جنيه' if bundle_active else 'السعر غير شامل الشحن'}}</span></div>
-  {% if free_shipping(p) %}<p class="free-shipping-note"><span aria-hidden="true">🚚</span> شحن مجاني: أي طلب فيه المنتج ده توصيله علينا.</p>{% endif %}
-  {% if bundle_active %}
+  {% if badge %}<p class="free-shipping-note"><span aria-hidden="true">🎁</span> عرض خاص على المنتج ده: خصم {{badge.percent}}%{% if free_shipping(p) %} + شحن مجاني لأي طلب فيه المنتج ده{% endif %}.{% if bundle_active %} <small>العرض ده لوحده ومش داخل في خصم الـ95 جنيه.</small>{% endif %}</p>
+  {% elif free_shipping(p) %}<p class="free-shipping-note"><span aria-hidden="true">🚚</span> شحن مجاني: أي طلب فيه المنتج ده توصيله علينا.</p>{% endif %}
+  {% if bundle_active and in_bundle(p) %}
   <aside class="mini-promo mini-promo-product" aria-label="عرض خاص عند شراء أكثر من قطعة">
    <span class="mini-promo-icon" aria-hidden="true">🎁</span>
    <div class="mini-promo-content"><strong>خصم 95 جنيه على كل قطعة إضافية بعد الأولى، وشحن مجاني من قطعتين.</strong>

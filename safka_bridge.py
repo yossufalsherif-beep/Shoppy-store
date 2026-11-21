@@ -11,6 +11,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import urlparse
 from profit_pricing import preserve_market_price, init_market_schema
+from special_offers import offer_for_slug
 from catalog_quality import clean_description, suggested_category, availability_from_source, extract_rating
 
 PROVIDER = 'safka'
@@ -494,13 +495,19 @@ def queue_safka_order(conn, order_id):
     return True
 
 
+def _offer_line(item):
+    """The fixed offer this order line was sold under, if any."""
+    offer = offer_for_slug(item['slug'])
+    return offer if offer and item['unit_price'] == offer['price'] else None
+
+
 def order_preview(conn, order_id):
     """Private snapshot for mapping to the supplier's *verified* API order schema."""
     o=conn.execute('SELECT * FROM orders WHERE id=?',(order_id,)).fetchone()
     if not o:
         raise CatalogValidationError('Unknown order')
     items=conn.execute('''SELECT oi.title,oi.quantity,oi.unit_price,oi.unit_cost,oi.variant_json,
-                                p.supplier_product_id,p.supplier_product_code,p.source
+                                p.supplier_product_id,p.supplier_product_code,p.source,p.slug
                          FROM order_items oi LEFT JOIN products p ON oi.product_id=p.id
                          WHERE oi.order_id=?''',(order_id,)).fetchall()
     if not items or any(i['source']!='safka' or not i['supplier_product_id'] for i in items):
@@ -539,7 +546,11 @@ def order_preview(conn, order_id):
         'promo_max_items':o['promo_max_items'] if 'promo_max_items' in o.keys() else 0,
         'bundle_offer_version':o['bundle_offer_version'] if 'bundle_offer_version' in o.keys() else 0,
         'bundle_unit_count':o['bundle_unit_count'] if 'bundle_unit_count' in o.keys() else 0,
-        'free_shipping_applied':o['free_shipping_applied'] if 'free_shipping_applied' in o.keys() else 0,
+        # Derived from the immutable line snapshot (no DB column): a fixed-offer
+        # line sold at its offer price made delivery free and sits outside the
+        # EGP 95 bundle. Older orders at the regular price are unaffected.
+        'free_shipping_applied':1 if any(_offer_line(x) and _offer_line(x).get('free_shipping') for x in items) else 0,
+        'bundle_eligible_quantity':sum(x['quantity'] for x in items if not _offer_line(x)),
         'supplier_shipping_piastres':o['shipping_supplier_cost'],
         'customer_total_piastres':o['total'],
         'items':[{'supplier_product_id':x['supplier_product_id'],'supplier_product_code':x['supplier_product_code'],'name':x['title'],

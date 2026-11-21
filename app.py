@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from catalog_quality import clean_description
-from profit_pricing import init_pricing_schema, checkout_offer, displayed_product_price, bundle_enabled, product_sale_badge, product_free_shipping
+from profit_pricing import init_pricing_schema, checkout_offer, displayed_product_price, bundle_enabled, product_sale_badge, product_free_shipping, product_in_bundle
+from special_offers import product_offer
 from social_auth import init_social_schema, configured_providers, start_flow, exchange_identity, resolve_account, SocialAuthError
 from ui_queries import paginate, price_filter, order_filters, grouped, ORDER_LABELS
 from safka_status import SUPPLIER_STATUS_LABELS, apply_order_status_event
@@ -76,13 +77,12 @@ CREATE TABLE IF NOT EXISTS order_items(id INTEGER PRIMARY KEY,order_id INTEGER N
   c.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_checkout_key ON orders(checkout_key)')
   # V4: additive migrations only. Old orders, users and media are preserved.
   product_columns={r['name'] for r in c.execute('PRAGMA table_info(products)')}
-  # compare_at_price / free_shipping are merchant-owned; Safka sync never writes them.
-  for column,definition in [('category',"TEXT NOT NULL DEFAULT ''"),('supplier_cost','INTEGER'),('compare_at_price','INTEGER'),('free_shipping','INTEGER NOT NULL DEFAULT 0')]:
+  for column,definition in [('category',"TEXT NOT NULL DEFAULT ''"),('supplier_cost','INTEGER')]:
    if column not in product_columns:c.execute(f'ALTER TABLE products ADD COLUMN {column} {definition}')
   shipping_columns={r['name'] for r in c.execute('PRAGMA table_info(shipping)')}
   if 'supplier_cost' not in shipping_columns:c.execute('ALTER TABLE shipping ADD COLUMN supplier_cost INTEGER')
   order_columns={r['name'] for r in c.execute('PRAGMA table_info(orders)')}
-  for column,definition in [('utm_source',"TEXT NOT NULL DEFAULT ''"),('utm_campaign',"TEXT NOT NULL DEFAULT ''"),('shipping_supplier_cost','INTEGER'),('free_shipping_applied','INTEGER NOT NULL DEFAULT 0')]:
+  for column,definition in [('utm_source',"TEXT NOT NULL DEFAULT ''"),('utm_campaign',"TEXT NOT NULL DEFAULT ''"),('shipping_supplier_cost','INTEGER')]:
    if column not in order_columns:c.execute(f'ALTER TABLE orders ADD COLUMN {column} {definition}')
   item_columns={r['name'] for r in c.execute('PRAGMA table_info(order_items)')}
   if 'unit_cost' not in item_columns:c.execute('ALTER TABLE order_items ADD COLUMN unit_cost INTEGER')
@@ -256,7 +256,7 @@ def query_link(**updates):
 @app.context_processor
 def ui_helpers():
  return dict(asset_version=ASSET_VERSION,page_link=page_link,query_link=query_link,order_labels=ORDER_LABELS,
-             can_order=supplier_stock_ready,product_choices=product_choices,shown_price=displayed_product_price,sale_badge=product_sale_badge,free_shipping=product_free_shipping,bundle_active=bundle_enabled(),
+             can_order=supplier_stock_ready,product_choices=product_choices,shown_price=displayed_product_price,sale_badge=product_sale_badge,free_shipping=product_free_shipping,special_offer=product_offer,in_bundle=product_in_bundle,bundle_active=bundle_enabled(),
              supplier_status_labels=SUPPLIER_STATUS_LABELS,supplier_live=supplier_checkout_live())
 
 def safe_back_url():
@@ -643,10 +643,6 @@ def checkout():
      existing=c.execute('SELECT reference FROM orders WHERE checkout_key=?',(key,)).fetchone()
      remember_order_ref(existing['reference'])
      return redirect('/order/success/'+existing['reference'])
-    if offer.get('free_shipping'):
-     # Separate write keeps checkout working before the additive migration runs;
-     # a product can only be flagged after the column exists.
-     c.execute('UPDATE orders SET free_shipping_applied=1 WHERE id=?',(cur.lastrowid,))
     if promo_code:consume_code(c,promo_code)
     for p,q,choices in fresh:
      c.execute('INSERT INTO order_items(order_id,product_id,title,unit_price,quantity,variant_json,unit_cost) VALUES(?,?,?,?,?,?,?)',(cur.lastrowid,p['id'],p['title'],displayed_product_price(p),q,json.dumps(choices,ensure_ascii=False),p['supplier_cost']))
@@ -1255,21 +1251,6 @@ def store_uploads(files):
   saved.append((kind,'/static/uploads/'+name))
  return saved
 
-def read_sale_fields(price):
- """Optional merchant offer fields: strike-through price and free delivery."""
- raw=request.form.get('compare_at_price','').strip()
- compare_at=parse_money(raw) if raw else None
- if compare_at is not None and compare_at<=price:
-  return None,None,'السعر قبل الخصم لازم يكون أكبر من سعر البيع؛ سيبه فاضي لو مفيش خصم.'
- return compare_at,1 if request.form.get('free_shipping')=='1' else 0,None
-
-def save_sale_fields(c,pid,product,compare_at,free):
- if 'compare_at_price' not in product.keys() or 'free_shipping' not in product.keys():
-  if compare_at is not None or free:
-   flash('حقول الخصم والشحن المجاني تحتاج تشغيل ملف supabase_product_offer_migration.sql أولًا.')
-  return
- c.execute('UPDATE products SET compare_at_price=?,free_shipping=? WHERE id=?',(compare_at,free,pid))
-
 @app.post('/admin/product')
 @admin_only
 def save_product():
@@ -1289,14 +1270,10 @@ def save_product():
  files=request.files.getlist('media')
  with db() as c:
   if c.execute('SELECT 1 FROM products WHERE slug=?',(slug,)).fetchone():flash('رابط المنتج مستخدم بالفعل');return redirect('/admin')
-  compare_at,free,sale_error=read_sale_fields(price)
-  if sale_error:flash(sale_error);return redirect('/admin#products')
   saved=store_uploads(files)
   try:
    cur=c.execute('INSERT INTO products(title,slug,description,price,image,options_json,category,supplier_cost) VALUES(?,?,?,?,?,?,?,?)',(title,slug,description,price,next((path for kind,path in saved if kind=='image'),image),json.dumps(options,ensure_ascii=False),category,supplier_cost))
    for i,(kind,path) in enumerate(saved):c.execute('INSERT INTO product_media(product_id,kind,path,position) VALUES(?,?,?,?)',(cur.lastrowid,kind,path,i))
-   if compare_at is not None or free:
-    save_sale_fields(c,cur.lastrowid,c.execute('SELECT * FROM products WHERE id=?',(cur.lastrowid,)).fetchone(),compare_at,free)
   except Exception:
    for _,path in saved:(ROOT/path.lstrip('/')).unlink(missing_ok=True)
    raise
@@ -1332,10 +1309,8 @@ def edit_product(pid):
   vals=list(dict.fromkeys(x.strip() for x in request.form.get(field,'').split(',') if x.strip()))
   if len(vals)>30 or any(len(x)>48 for x in vals):abort(400)
   if vals:options[label]=vals
- compare_at,free,sale_error=read_sale_fields(price)
- if sale_error:flash(sale_error);return redirect('/admin#products')
  with db() as c:
-  product=c.execute('SELECT * FROM products WHERE id=?',(pid,)).fetchone()
+  product=c.execute('SELECT source FROM products WHERE id=?',(pid,)).fetchone()
   if not product:abort(404)
   if product['source']=='safka':
    # Save a durable merchant-owned overlay. Supplier sync updates base data,
@@ -1351,8 +1326,6 @@ def edit_product(pid):
    if safka_only_mode():abort(403)
    c.execute('UPDATE products SET title=?,description=?,price=?,options_json=?,category=?,supplier_cost=? WHERE id=?',
              (title,desc,price,json.dumps(options,ensure_ascii=False),category,supplier_cost,pid))
-  # Merchant-owned offer columns: supplier sync never touches them.
-  save_sale_fields(c,pid,product,compare_at,free)
  flash('تم تحديث المنتج')
  return redirect('/admin#products')
 

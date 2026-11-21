@@ -1,5 +1,6 @@
 """Integer-only margin policy, market evidence and merchant-funded delivery."""
 import os
+from special_offers import product_offer, _field as _product_field
 from datetime import datetime, timezone
 
 MIN_PROFIT=3000
@@ -85,47 +86,44 @@ def bundle_enabled():
     return os.getenv('SHOPY_BUNDLE_OFFER_ENABLED', '0') == '1'
 
 def displayed_product_price(product):
+    offer = product_offer(product)
+    if offer:
+        # Fixed offer price; never carries the bundle premium.
+        return offer['price']
     return product['price'] + (BUNDLE_PREMIUM_PIASTRES if bundle_enabled() else 0)
 
 
-def _product_field(product, name, default=None):
-    """Read optional merchandising columns that older databases may not have yet."""
-    try:
-        keys = product.keys()
-    except AttributeError:
-        return default
-    return product[name] if name in keys else default
+def product_in_bundle(product):
+    """Fixed-offer products are outside the EGP 95 per-extra-piece offer."""
+    return product_offer(product) is None
 
 
 def product_free_shipping(product):
-    """Merchant-set per-product free delivery flag (``products.free_shipping``)."""
-    return _product_field(product, 'free_shipping', 0) == 1
+    offer = product_offer(product)
+    return bool(offer and offer.get('free_shipping'))
 
 
 def product_sale_badge(product):
-    """Return the strike-through price and honest percentage, or None.
-
-    ``compare_at_price`` is a manual merchant value. The percentage is rounded
-    DOWN so the badge never overstates the saving (999 -> 499 shows 50%).
-    """
-    original = _product_field(product, 'compare_at_price')
-    if type(original) is not int or original <= 0:
+    """Struck-through price and an honest percentage (rounded DOWN), or None."""
+    offer = product_offer(product)
+    if not offer:
         return None
+    original = offer.get('compare_at')
     shown = displayed_product_price(product)
-    if shown <= 0 or original <= shown:
+    if type(original) is not int or shown <= 0 or original <= shown:
         return None
     return {'compare_at': original, 'percent': (original - shown) * 100 // original}
 
 
 def order_has_free_shipping(rows):
-    """Documented rule: delivery is free for the WHOLE order if it contains any
-    free-shipping product. Supplier delivery is then merchant-funded."""
+    """Rule: delivery is free for the WHOLE order if it contains any
+    free-shipping offer product. Supplier delivery is then merchant-funded."""
     return any(product_free_shipping(p) for p, *_ in rows)
 
 
 def _apply_free_shipping(offer, rows, rate):
     standard, supplier_shipping = rate
-    goods = [p['supplier_cost'] for p, *_ in rows]
+    goods = [_product_field(p, 'supplier_cost') for p, *_ in rows]
     costs_known = (type(supplier_shipping) is int and supplier_shipping >= 0
                    and all(type(cost) is int and cost > 0 for cost in goods))
     if not costs_known and any(_product_field(p, 'source') == 'safka' for p, *_ in rows):
@@ -153,7 +151,7 @@ def checkout_offer(conn, rows, rate):
             raise ValueError('Shipping destination is unavailable')
         legacy = ({'standard': rate[0], 'fee': rate[0], 'discount': 0, 'floor': 0}
                   if free else shipping_offer(conn, rows, rate))
-        displayed = sum(p['price'] * q for p, q, *_ in rows)
+        displayed = sum(displayed_product_price(p) * q for p, q, *_ in rows)
         offer = dict(legacy, displayed_subtotal=displayed,
                      merchandise_total=displayed, bundle_discount=0,
                      bundle_offer_version=0, bundle_unit_count=sum(q for _, q, *_ in rows),
@@ -169,11 +167,12 @@ def checkout_offer(conn, rows, rate):
                        or p['supplier_cost'] is None or p['supplier_cost'] <= 0
                        for p, q, *_ in rows):
         raise ValueError('Supplier costs are missing; bundle offer requires price review')
-    units = sum(q for _, q, *_ in rows)
+    # Fixed-offer products are not bundle pieces: no premium and no discount.
+    units = sum(q for p, q, *_ in rows if product_in_bundle(p))
     displayed = sum(displayed_product_price(p) * q for p, q, *_ in rows)
-    discount = BUNDLE_PREMIUM_PIASTRES * (units - 1)
+    discount = BUNDLE_PREMIUM_PIASTRES * max(units - 1, 0)
     merchandise = displayed - discount
-    if units >= 2:
+    if units >= 2 or order_has_free_shipping(rows):
         delivery = 0
     else:
         # Flat customer tariff; never advertise the internal carrier subsidy.
@@ -261,7 +260,7 @@ def _free_shipping_flag(raw):
     return value==1
 
 
-def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
+def validate_delivery_snapshot(raw,subtotal,costs,quantity=None,bundle_quantity=None):
     if raw.get('bundle_offer_version', 0) in (1, 2, 3):
         standard=raw['shipping_standard_fee']
         supplier=raw['supplier_shipping_piastres']
@@ -274,12 +273,14 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
         free=_free_shipping_flag(raw)
         if not all(type(v) is int for v in (standard,supplier,buyer,discount,bundle_discount,units,floor,promo_ship)) or promo_ship<0:
             raise ValueError('Invalid promotional order snapshot')
-        if units < 1 or quantity != units or standard != supplier+1000 or not 0 <= buyer <= standard or discount != standard-buyer:
+        # Fixed-offer pieces are outside the bundle, so compare with eligible pieces.
+        expected_units=quantity if bundle_quantity is None else bundle_quantity
+        if units < (0 if free else 1) or expected_units != units or standard != supplier+1000 or not 0 <= buyer <= standard or discount != standard-buyer:
             raise ValueError('Promotional shipping snapshots do not reconcile')
         baseline_buyer=buyer+promo_ship
         if free and (raw['bundle_offer_version'] != 3 or buyer != 0 or promo_ship != 0):
             raise ValueError('Free-shipping product order must have zero customer delivery')
-        if bundle_discount != BUNDLE_PREMIUM_PIASTRES*(units-1) or (units>=2 and (buyer!=0 or promo_ship!=0)) or (units==1 and not free and baseline_buyer<100):
+        if bundle_discount != BUNDLE_PREMIUM_PIASTRES*max(units-1,0) or (units>=2 and (buyer!=0 or promo_ship!=0)) or (units==1 and not free and baseline_buyer<100):
             raise ValueError('Promotional discount does not match purchased quantity')
         if raw['bundle_offer_version'] == 3 and units == 1 and not free and baseline_buyer != SINGLE_ITEM_SHIPPING_PIASTRES:
             raise ValueError('Single-item shipping is not the fixed EGP 50 tariff')
@@ -289,7 +290,7 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
                           else MIN_BUNDLE_CONTRIBUTION_PIASTRES)
         if merchandise < 0 or floor != expected_floor or merchandise+buyer-costs-supplier < floor:
             raise ValueError('Promotional order violates retained merchant contribution')
-        validate_promo_snapshot(raw,merchandise,costs,supplier,buyer,floor,units)
+        validate_promo_snapshot(raw,merchandise,costs,supplier,buyer,floor,quantity)
         return
     if raw.get('bundle_offer_version', 0) not in (0,None):
         raise ValueError('Unknown promotion version')
