@@ -223,6 +223,22 @@ class ProductOfferTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 prepare_dry_run(conn, order['id'])
 
+    def test_ending_or_repricing_offer_keeps_placed_orders_valid(self):
+        brush, other = self.safka_setup()
+        with patch.dict(os.environ, {'SHOPY_BUNDLE_OFFER_ENABLED': '1'}):
+            self.add(brush)
+            self.add(other, 2)
+            self.checkout()
+        order, _ = self.last_order()
+        ended = dict(SPECIAL_OFFERS[OFFER_SLUG], active=False)
+        repriced = dict(SPECIAL_OFFERS[OFFER_SLUG], price=45000, past_prices=[49900])
+        for changed in (ended, repriced):
+            with self.subTest(changed=changed), patch.dict(SPECIAL_OFFERS, {OFFER_SLUG: changed}), store.db() as conn:
+                prepare_dry_run(conn, order['id'])
+        with patch.dict(SPECIAL_OFFERS, {OFFER_SLUG: ended}):
+            self.assertIsNone(product_sale_badge({'slug': OFFER_SLUG, 'price': 30000}))
+            self.assertEqual(displayed_product_price({'slug': OFFER_SLUG, 'price': 30000}), 30000)
+
     def test_safka_sync_cannot_undo_offer(self):
         brush, _ = self.safka_setup()
         with store.db() as conn:

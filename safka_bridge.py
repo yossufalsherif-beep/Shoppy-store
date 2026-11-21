@@ -11,7 +11,7 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from urllib.parse import urlparse
 from profit_pricing import preserve_market_price, init_market_schema
-from special_offers import offer_for_slug
+from special_offers import offer_sold_at
 from catalog_quality import clean_description, suggested_category, availability_from_source, extract_rating
 
 PROVIDER = 'safka'
@@ -497,8 +497,7 @@ def queue_safka_order(conn, order_id):
 
 def _offer_line(item):
     """The fixed offer this order line was sold under, if any."""
-    offer = offer_for_slug(item['slug'])
-    return offer if offer and item['unit_price'] == offer['price'] else None
+    return offer_sold_at(item['slug'], item['unit_price'])
 
 
 def order_preview(conn, order_id):
