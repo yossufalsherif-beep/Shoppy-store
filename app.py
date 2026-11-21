@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from catalog_quality import clean_description
-from profit_pricing import init_pricing_schema, checkout_offer, displayed_product_price, bundle_enabled
+from profit_pricing import init_pricing_schema, checkout_offer, displayed_product_price, bundle_enabled, product_sale_badge, product_free_shipping, product_in_bundle
+from special_offers import product_offer
 from social_auth import init_social_schema, configured_providers, start_flow, exchange_identity, resolve_account, SocialAuthError
 from ui_queries import paginate, price_filter, order_filters, grouped, ORDER_LABELS
 from safka_status import SUPPLIER_STATUS_LABELS, apply_order_status_event
@@ -255,7 +256,7 @@ def query_link(**updates):
 @app.context_processor
 def ui_helpers():
  return dict(asset_version=ASSET_VERSION,page_link=page_link,query_link=query_link,order_labels=ORDER_LABELS,
-             can_order=supplier_stock_ready,product_choices=product_choices,shown_price=displayed_product_price,bundle_active=bundle_enabled(),
+             can_order=supplier_stock_ready,product_choices=product_choices,shown_price=displayed_product_price,sale_badge=product_sale_badge,free_shipping=product_free_shipping,special_offer=product_offer,in_bundle=product_in_bundle,bundle_active=bundle_enabled(),
              supplier_status_labels=SUPPLIER_STATUS_LABELS,supplier_live=supplier_checkout_live())
 
 def safe_back_url():

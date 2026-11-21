@@ -1,5 +1,6 @@
 """Integer-only margin policy, market evidence and merchant-funded delivery."""
 import os
+from special_offers import product_offer, _field as _product_field
 from datetime import datetime, timezone
 
 MIN_PROFIT=3000
@@ -85,7 +86,56 @@ def bundle_enabled():
     return os.getenv('SHOPY_BUNDLE_OFFER_ENABLED', '0') == '1'
 
 def displayed_product_price(product):
+    offer = product_offer(product)
+    if offer:
+        # Fixed offer price; never carries the bundle premium.
+        return offer['price']
     return product['price'] + (BUNDLE_PREMIUM_PIASTRES if bundle_enabled() else 0)
+
+
+def product_in_bundle(product):
+    """Fixed-offer products are outside the EGP 95 per-extra-piece offer."""
+    return product_offer(product) is None
+
+
+def product_free_shipping(product):
+    offer = product_offer(product)
+    return bool(offer and offer.get('free_shipping'))
+
+
+def product_sale_badge(product):
+    """Struck-through price and an honest percentage (rounded DOWN), or None."""
+    offer = product_offer(product)
+    if not offer:
+        return None
+    original = offer.get('compare_at')
+    shown = displayed_product_price(product)
+    if type(original) is not int or shown <= 0 or original <= shown:
+        return None
+    return {'compare_at': original, 'percent': (original - shown) * 100 // original}
+
+
+def order_has_free_shipping(rows):
+    """Rule: delivery is free for the WHOLE order if it contains any
+    free-shipping offer product. Supplier delivery is then merchant-funded."""
+    return any(product_free_shipping(p) for p, *_ in rows)
+
+
+def _apply_free_shipping(offer, rows, rate):
+    standard, supplier_shipping = rate
+    goods = [_product_field(p, 'supplier_cost') for p, *_ in rows]
+    costs_known = (type(supplier_shipping) is int and supplier_shipping >= 0
+                   and all(type(cost) is int and cost > 0 for cost in goods))
+    if not costs_known and any(_product_field(p, 'source') == 'safka' for p, *_ in rows):
+        raise ValueError('الشحن المجاني يحتاج تكلفة مورد مؤكدة؛ راجع السلة لاحقًا.')
+    if costs_known:
+        supplier_goods = sum(p['supplier_cost'] * q for p, q, *_ in rows)
+        if (offer['merchandise_total'] - supplier_goods - supplier_shipping
+                < MIN_BUNDLE_CONTRIBUTION_PIASTRES):
+            raise ValueError('الشحن المجاني غير متاح لهذه السلة مؤقتًا؛ يحتاج مراجعة هامش الربح قبل البيع.')
+    offer.update(fee=0, discount=standard, floor=MIN_BUNDLE_CONTRIBUTION_PIASTRES,
+                 free_shipping=True)
+    return offer
 
 def checkout_offer(conn, rows, rate):
     """Compute a verified server-side quote without changing stored prices.
@@ -96,11 +146,17 @@ def checkout_offer(conn, rows, rate):
     cover the supplier product and shipping costs plus a positive contribution.
     """
     if not bundle_enabled():
-        legacy = shipping_offer(conn, rows, rate)
-        displayed = sum(p['price'] * q for p, q, *_ in rows)
-        return dict(legacy, displayed_subtotal=displayed,
-                    merchandise_total=displayed, bundle_discount=0,
-                    bundle_offer_version=0, bundle_unit_count=sum(q for _, q, *_ in rows))
+        free = order_has_free_shipping(rows)
+        if free and rate is None:
+            raise ValueError('Shipping destination is unavailable')
+        legacy = ({'standard': rate[0], 'fee': rate[0], 'discount': 0, 'floor': 0}
+                  if free else shipping_offer(conn, rows, rate))
+        displayed = sum(displayed_product_price(p) * q for p, q, *_ in rows)
+        offer = dict(legacy, displayed_subtotal=displayed,
+                     merchandise_total=displayed, bundle_discount=0,
+                     bundle_offer_version=0, bundle_unit_count=sum(q for _, q, *_ in rows),
+                     free_shipping=False)
+        return _apply_free_shipping(offer, rows, rate) if free else offer
     if rate is None:
         raise ValueError('Shipping destination is unavailable')
     standard, supplier_shipping = rate
@@ -111,11 +167,12 @@ def checkout_offer(conn, rows, rate):
                        or p['supplier_cost'] is None or p['supplier_cost'] <= 0
                        for p, q, *_ in rows):
         raise ValueError('Supplier costs are missing; bundle offer requires price review')
-    units = sum(q for _, q, *_ in rows)
+    # Fixed-offer products are not bundle pieces: no premium and no discount.
+    units = sum(q for p, q, *_ in rows if product_in_bundle(p))
     displayed = sum(displayed_product_price(p) * q for p, q, *_ in rows)
-    discount = BUNDLE_PREMIUM_PIASTRES * (units - 1)
+    discount = BUNDLE_PREMIUM_PIASTRES * max(units - 1, 0)
     merchandise = displayed - discount
-    if units >= 2:
+    if units >= 2 or order_has_free_shipping(rows):
         delivery = 0
     else:
         # Flat customer tariff; never advertise the internal carrier subsidy.
@@ -126,12 +183,14 @@ def checkout_offer(conn, rows, rate):
     supplier_goods = sum(p['supplier_cost'] * q for p, q, *_ in rows)
     if merchandise + delivery - supplier_goods - supplier_shipping < floor:
         raise ValueError('العرض غير متاح لهذه السلة مؤقتًا؛ يحتاج مراجعة هامش الربح قبل البيع.')
-    return {
+    offer = {
         'standard': standard, 'fee': delivery, 'discount': standard - delivery,
         'floor': floor, 'displayed_subtotal': displayed,
         'merchandise_total': merchandise, 'bundle_discount': discount,
         'bundle_offer_version': BUNDLE_OFFER_VERSION, 'bundle_unit_count': units,
+        'free_shipping': False,
     }
+    return _apply_free_shipping(offer, rows, rate) if order_has_free_shipping(rows) else offer
 
 def validate_promo_snapshot(raw,merchandise,costs,supplier_shipping,buyer_shipping,floor,quantity=None):
     """Reconcile saved voucher terms, totals, limits and merchant contribution.
@@ -194,7 +253,14 @@ def validate_promo_snapshot(raw,merchandise,costs,supplier_shipping,buyer_shippi
         raise ValueError('Coupon would undercut verified supplier costs')
 
 
-def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
+def _free_shipping_flag(raw):
+    value=raw.get('free_shipping_applied',0) or 0
+    if type(value) is not int or value not in (0,1):
+        raise ValueError('Invalid free-shipping snapshot')
+    return value==1
+
+
+def validate_delivery_snapshot(raw,subtotal,costs,quantity=None,bundle_quantity=None):
     if raw.get('bundle_offer_version', 0) in (1, 2, 3):
         standard=raw['shipping_standard_fee']
         supplier=raw['supplier_shipping_piastres']
@@ -204,14 +270,19 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
         units=raw['bundle_unit_count']
         floor=raw['retained_profit_floor']
         promo_ship=raw.get('promo_shipping_discount',0)
+        free=_free_shipping_flag(raw)
         if not all(type(v) is int for v in (standard,supplier,buyer,discount,bundle_discount,units,floor,promo_ship)) or promo_ship<0:
             raise ValueError('Invalid promotional order snapshot')
-        if units < 1 or quantity != units or standard != supplier+1000 or not 0 <= buyer <= standard or discount != standard-buyer:
+        # Fixed-offer pieces are outside the bundle, so compare with eligible pieces.
+        expected_units=quantity if bundle_quantity is None else bundle_quantity
+        if units < (0 if free else 1) or expected_units != units or standard != supplier+1000 or not 0 <= buyer <= standard or discount != standard-buyer:
             raise ValueError('Promotional shipping snapshots do not reconcile')
         baseline_buyer=buyer+promo_ship
-        if bundle_discount != BUNDLE_PREMIUM_PIASTRES*(units-1) or (units>=2 and (buyer!=0 or promo_ship!=0)) or (units==1 and baseline_buyer<100):
+        if free and (raw['bundle_offer_version'] != 3 or buyer != 0 or promo_ship != 0):
+            raise ValueError('Free-shipping product order must have zero customer delivery')
+        if bundle_discount != BUNDLE_PREMIUM_PIASTRES*max(units-1,0) or (units>=2 and (buyer!=0 or promo_ship!=0)) or (units==1 and not free and baseline_buyer<100):
             raise ValueError('Promotional discount does not match purchased quantity')
-        if raw['bundle_offer_version'] == 3 and units == 1 and baseline_buyer != SINGLE_ITEM_SHIPPING_PIASTRES:
+        if raw['bundle_offer_version'] == 3 and units == 1 and not free and baseline_buyer != SINGLE_ITEM_SHIPPING_PIASTRES:
             raise ValueError('Single-item shipping is not the fixed EGP 50 tariff')
         merchandise=subtotal-bundle_discount
         expected_floor = (retained_profit_floor(merchandise)
@@ -219,7 +290,7 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
                           else MIN_BUNDLE_CONTRIBUTION_PIASTRES)
         if merchandise < 0 or floor != expected_floor or merchandise+buyer-costs-supplier < floor:
             raise ValueError('Promotional order violates retained merchant contribution')
-        validate_promo_snapshot(raw,merchandise,costs,supplier,buyer,floor,units)
+        validate_promo_snapshot(raw,merchandise,costs,supplier,buyer,floor,quantity)
         return
     if raw.get('bundle_offer_version', 0) not in (0,None):
         raise ValueError('Unknown promotion version')
@@ -233,6 +304,15 @@ def validate_delivery_snapshot(raw,subtotal,costs,quantity=None):
         raise ValueError('Invalid delivery snapshot')
     if standard!=supplier+1000 or not 0<=discount<=standard or buyer!=standard-discount:
         raise ValueError('Delivery discount does not match the saved rate')
+    if _free_shipping_flag(raw):
+        # Merchant-funded free delivery for a flagged product: the customer pays
+        # no delivery, and goods must still cover supplier goods + delivery.
+        if buyer!=0 or discount!=standard or raw.get('promo_shipping_discount',0)!=0:
+            raise ValueError('Free-shipping product order must have zero customer delivery')
+        if floor!=MIN_BUNDLE_CONTRIBUTION_PIASTRES or subtotal-costs-supplier<floor:
+            raise ValueError('Free shipping violates the minimum merchant contribution')
+        validate_promo_snapshot(raw,subtotal,costs,supplier,buyer,floor,quantity)
+        return
     legacy_discount=discount-raw.get('promo_shipping_discount',0)
     if legacy_discount<0:raise ValueError('Invalid coupon shipping discount')
     if legacy_discount and (floor!=retained_profit_floor(subtotal) or subtotal+buyer-costs-supplier<floor):
